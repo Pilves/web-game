@@ -6,7 +6,11 @@ const GameManager = require('./GameManager');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*' },
+  cors: {
+    // SECURITY: In production, restrict this to your specific domain(s)
+    // e.g., origin: 'https://yourgame.com' or ['https://yourgame.com', 'https://www.yourgame.com']
+    origin: process.env.CORS_ORIGIN || '*'
+  },
 });
 
 // Serve static files from client folder
