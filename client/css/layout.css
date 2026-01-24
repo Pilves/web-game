@@ -255,6 +255,26 @@ input[type="number"] {
   cursor: not-allowed;
 }
 
+.btn.loading {
+  position: relative;
+  color: transparent;
+}
+
+.btn.loading::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 50%;
+  left: 50%;
+  margin-left: -8px;
+  margin-top: -8px;
+  border: 2px solid var(--panel-border);
+  border-top-color: var(--text-primary);
+  border-radius: 50%;
+  animation: spinner-rotate 0.8s linear infinite;
+}
+
 .btn-primary {
   background: var(--accent-primary);
   color: var(--text-primary);
