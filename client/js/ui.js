@@ -10,19 +10,43 @@ export class UI {
   }
 
   showScreen(screenName) {
-    // Hide all screens
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    const currentScreen = document.querySelector('.screen.active');
+    const newScreen = document.getElementById(`${screenName}-screen`);
 
-    // Show specified screen
-    const screen = document.getElementById(`${screenName}-screen`);
-    if (screen) {
-      screen.classList.add('active');
+    if (!newScreen) return;
+
+    // If transitioning from menu, re-enable menu buttons
+    if (this.currentScreen === 'menu' && screenName !== 'menu') {
+      this.enableMenuButtons();
+    }
+
+    // If there's a current screen, fade it out first
+    if (currentScreen && currentScreen !== newScreen) {
+      currentScreen.classList.add('screen-fade-out');
+
+      // After fade out, switch screens
+      setTimeout(() => {
+        // Hide all screens
+        document.querySelectorAll('.screen').forEach(s => {
+          s.classList.remove('active', 'screen-fade-out', 'screen-fade-in');
+        });
+
+        // Show new screen with fade in
+        newScreen.classList.add('active', 'screen-fade-in');
+        this.currentScreen = screenName;
+      }, 200); // Slightly shorter than CSS animation for smoother transition
+    } else {
+      // No current screen, just show the new one
+      document.querySelectorAll('.screen').forEach(s => {
+        s.classList.remove('active', 'screen-fade-out', 'screen-fade-in');
+      });
+      newScreen.classList.add('active', 'screen-fade-in');
       this.currentScreen = screenName;
     }
   }
 
   updateLobby(lobbyData) {
-    if (!lobbyData) return;
+    if (!lobbyData || !lobbyData.players) return;
 
     // Update room code display
     const codeDisplay = document.getElementById('room-code-display');
@@ -38,6 +62,7 @@ export class UI {
       for (const player of lobbyData.players) {
         const item = document.createElement('div');
         item.className = 'player-item';
+        item.setAttribute('role', 'listitem');
         if (player.ready) item.classList.add('ready');
         if (player.id === this.game.myId) item.classList.add('self');
         if (player.id === lobbyData.host) item.classList.add('host');
@@ -45,9 +70,16 @@ export class UI {
         const isHost = this.game.isHost;
         const canKick = isHost && player.id !== this.game.myId;
 
+        // Build aria-label for the player item
+        const statusText = player.ready ? 'Ready' : 'Not Ready';
+        const hostText = player.id === lobbyData.host ? ', Host' : '';
+        const selfText = player.id === this.game.myId ? ' (You)' : '';
+        item.setAttribute('aria-label', `${player.name}${selfText}${hostText}, ${statusText}`);
+
         const colorSpan = document.createElement('span');
         colorSpan.className = 'player-color';
         colorSpan.style.background = player.color;
+        colorSpan.setAttribute('aria-hidden', 'true');
         item.appendChild(colorSpan);
 
         const nameSpan = document.createElement('span');
@@ -72,6 +104,7 @@ export class UI {
           kickBtn.className = 'kick-btn';
           kickBtn.dataset.id = player.id;
           kickBtn.textContent = 'Kick';
+          kickBtn.setAttribute('aria-label', `Kick ${player.name} from lobby`);
           item.appendChild(kickBtn);
         }
 
@@ -139,7 +172,9 @@ export class UI {
     // Update hearts display
     const heartsDisplay = document.getElementById('hearts-display');
     if (heartsDisplay) {
-      heartsDisplay.textContent = '\u2665'.repeat(Math.max(0, hearts));
+      const heartCount = Math.max(0, hearts);
+      heartsDisplay.textContent = '\u2665'.repeat(heartCount);
+      heartsDisplay.setAttribute('aria-label', heartCount + ' ' + (heartCount === 1 ? 'life' : 'lives') + ' remaining');
     }
 
     // Update ammo display
@@ -147,6 +182,7 @@ export class UI {
     if (ammoDisplay) {
       ammoDisplay.textContent = hasAmmo ? '\u25CF' : '\u25CB';
       ammoDisplay.classList.toggle('has-ammo', !!hasAmmo);
+      ammoDisplay.setAttribute('aria-label', hasAmmo ? 'Pillow ready to throw' : 'No ammo');
     }
 
     // Update timer
@@ -155,6 +191,12 @@ export class UI {
       const minutes = Math.floor(state.time / 60);
       const seconds = state.time % 60;
       timerDisplay.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      // Add warning class when time is low
+      const isWarning = state.time <= 30;
+      timerDisplay.classList.toggle('warning', isWarning);
+      // Enable aria-live for screen readers when time is critical
+      timerDisplay.setAttribute('aria-live', isWarning ? 'polite' : 'off');
+      timerDisplay.setAttribute('aria-label', `${minutes} minutes ${seconds} seconds remaining`);
     }
 
     // Update player name display
@@ -311,6 +353,9 @@ export class UI {
         const name = playerNameInput?.value.trim() || 'Player';
         if (name) {
           this.clearError();
+          // Disable button to prevent spam-clicking
+          createRoomBtn.disabled = true;
+          createRoomBtn.classList.add('loading');
           this.game.network.createRoom(name);
         }
       });
@@ -327,6 +372,9 @@ export class UI {
         }
 
         this.clearError();
+        // Disable button to prevent spam-clicking
+        joinRoomBtn.disabled = true;
+        joinRoomBtn.classList.add('loading');
         this.game.network.joinRoom(code, name);
       });
     }
@@ -390,13 +438,18 @@ export class UI {
               copyCodeBtn.textContent = 'Copy';
             }, 2000);
           }).catch(() => {
-            // Fallback: select the code text
+            // Fallback: select the code text and inform user
             if (codeDisplay) {
               const range = document.createRange();
               range.selectNodeContents(codeDisplay);
               const sel = window.getSelection();
               sel.removeAllRanges();
               sel.addRange(range);
+              // Show feedback to user about manual copy
+              copyCodeBtn.textContent = 'Press Ctrl+C';
+              setTimeout(() => {
+                copyCodeBtn.textContent = 'Copy';
+              }, 3000);
             }
           });
         }
@@ -484,12 +537,29 @@ export class UI {
     if (errorEl) {
       errorEl.textContent = message;
     }
+    // Re-enable menu buttons on error
+    this.enableMenuButtons();
   }
 
   clearError() {
     const errorEl = document.getElementById('menu-error');
     if (errorEl) {
       errorEl.textContent = '';
+    }
+  }
+
+  // Re-enable menu buttons after async operation completes
+  enableMenuButtons() {
+    const createRoomBtn = document.getElementById('create-room-btn');
+    const joinRoomBtn = document.getElementById('join-room-btn');
+
+    if (createRoomBtn) {
+      createRoomBtn.disabled = false;
+      createRoomBtn.classList.remove('loading');
+    }
+    if (joinRoomBtn) {
+      joinRoomBtn.disabled = false;
+      joinRoomBtn.classList.remove('loading');
     }
   }
 }
