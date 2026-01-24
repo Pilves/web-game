@@ -1,0 +1,13 @@
+services:
+  lights-out:
+    build: .
+    container_name: lights-out-game
+    restart: unless-stopped
+    ports:
+      - "3200:3000"
+    networks:
+      - casino_default
+
+networks:
+  casino_default:
+    external: true

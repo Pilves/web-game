@@ -30,8 +30,11 @@ export class Network {
       return;
     }
 
-    this.socket = io();
-    console.log('[Network] Socket.io instance created');
+    // Detect if running under a subpath (e.g., /game/) and configure socket.io accordingly
+    const basePath = new URL(document.baseURI).pathname.replace(/\/$/, '');
+    const socketPath = basePath ? `${basePath}/socket.io` : '/socket.io';
+    this.socket = io({ path: socketPath });
+    console.log('[Network] Socket.io instance created with path:', socketPath);
 
     // Set up lifecycle handlers (tracked in this.handlers for proper cleanup)
     this.handlers['connect'] = () => {
