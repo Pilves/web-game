@@ -65,6 +65,19 @@ export class Network {
       this.game.onJoinError(data.message);
     });
 
+    // Room joined confirmation (sent directly to joining player)
+    this.socket.on('room-joined', (data) => {
+      console.log('Room joined:', data.code);
+      this.roomCode = data.code;
+      this.game.myId = this.socket.id;
+      this.game.roomCode = data.code;
+      // Transition to lobby screen immediately
+      if (this.game.state === 'menu') {
+        this.game.ui.showScreen('lobby');
+        this.game.state = 'lobby';
+      }
+    });
+
     // Lobby state update
     this.socket.on('lobby-update', (data) => {
       console.log('Lobby update:', data);
@@ -125,20 +138,32 @@ export class Network {
       console.log('Game over, winner:', data.winner);
       this.game.onGameOver(data);
     });
+
+    // Sudden death started
+    this.socket.on('sudden-death', () => {
+      console.log('Sudden death started');
+      this.game.onSuddenDeath();
+    });
   }
 
   // --- Outgoing Events ---
 
   // Create a new room (host)
   createRoom(name) {
-    if (!this.connected) return;
+    if (!this.connected) {
+      this.game.ui?.showError('Not connected to server');
+      return;
+    }
     this.playerName = name;
     this.socket.emit('create-room', { name });
   }
 
   // Join an existing room
   joinRoom(code, name) {
-    if (!this.connected) return;
+    if (!this.connected) {
+      this.game.ui?.showError('Not connected to server');
+      return;
+    }
     this.roomCode = code.toUpperCase();
     this.playerName = name;
     this.socket.emit('join-room', { code: this.roomCode, name });
@@ -146,25 +171,37 @@ export class Network {
 
   // Toggle ready state in lobby
   toggleReady() {
-    if (!this.connected) return;
+    if (!this.connected) {
+      this.game.ui?.showError('Not connected to server');
+      return;
+    }
     this.socket.emit('toggle-ready');
   }
 
   // Kick a player (host only)
   kickPlayer(playerId) {
-    if (!this.connected) return;
+    if (!this.connected) {
+      this.game.ui?.showError('Not connected to server');
+      return;
+    }
     this.socket.emit('kick-player', { playerId });
   }
 
   // Update game settings (host only)
   updateSettings(settings) {
-    if (!this.connected) return;
+    if (!this.connected) {
+      this.game.ui?.showError('Not connected to server');
+      return;
+    }
     this.socket.emit('update-settings', settings);
   }
 
   // Start the game (host only)
   startGame() {
-    if (!this.connected) return;
+    if (!this.connected) {
+      this.game.ui?.showError('Not connected to server');
+      return;
+    }
     this.socket.emit('start-game');
   }
 
@@ -206,25 +243,37 @@ export class Network {
 
   // Request game pause
   pause() {
-    if (!this.connected) return;
+    if (!this.connected) {
+      this.game.ui?.showError('Not connected to server');
+      return;
+    }
     this.socket.emit('pause');
   }
 
   // Request game resume
   resume() {
-    if (!this.connected) return;
+    if (!this.connected) {
+      this.game.ui?.showError('Not connected to server');
+      return;
+    }
     this.socket.emit('resume');
   }
 
   // Quit the current game
   quit() {
-    if (!this.connected) return;
+    if (!this.connected) {
+      this.game.ui?.showError('Not connected to server');
+      return;
+    }
     this.socket.emit('quit');
   }
 
   // Return to lobby after game over
   returnToLobby() {
-    if (!this.connected) return;
+    if (!this.connected) {
+      this.game.ui?.showError('Not connected to server');
+      return;
+    }
     this.socket.emit('return-lobby');
   }
 
