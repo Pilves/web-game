@@ -11,9 +11,13 @@
 
 const CONSTANTS = require('./constants');
 const GEOMETRY = require('../shared/geometry.js');
+const Physics = require('./Physics.js');
 
 // Import shared geometry functions
 const { rectsCollide } = GEOMETRY;
+
+// Import collision resolution from Physics
+const { resolveCollision } = Physics;
 
 const {
   PROJECTILE_SPEED,
@@ -35,32 +39,32 @@ const PROJECTILE_LIFETIME = 2000;
 const _updatedProjectiles = [];
 const _events = [];
 
+// Reusable rect objects to reduce GC pressure
+const _playerRect = { x: 0, y: 0, width: PLAYER_SIZE, height: PLAYER_SIZE };
+const _projectileRect = { x: 0, y: 0, width: PROJECTILE_SIZE, height: PROJECTILE_SIZE };
+
 /**
  * Get bounding rectangle for a player (centered on position)
+ * WARNING: Returns a reusable object - do not store reference, copy if needed
  * @param {Object} player - Player object with x, y coordinates
  * @returns {Object} Rectangle { x, y, width, height }
  */
 function getPlayerRect(player) {
-  return {
-    x: player.x - PLAYER_SIZE / 2,
-    y: player.y - PLAYER_SIZE / 2,
-    width: PLAYER_SIZE,
-    height: PLAYER_SIZE,
-  };
+  _playerRect.x = player.x - PLAYER_SIZE / 2;
+  _playerRect.y = player.y - PLAYER_SIZE / 2;
+  return _playerRect;
 }
 
 /**
  * Get bounding rectangle for a projectile (centered on position)
+ * WARNING: Returns a reusable object - do not store reference, copy if needed
  * @param {Object} projectile - Projectile object with x, y coordinates
  * @returns {Object} Rectangle { x, y, width, height }
  */
 function getProjectileRect(projectile) {
-  return {
-    x: projectile.x - PROJECTILE_SIZE / 2,
-    y: projectile.y - PROJECTILE_SIZE / 2,
-    width: PROJECTILE_SIZE,
-    height: PROJECTILE_SIZE,
-  };
+  _projectileRect.x = projectile.x - PROJECTILE_SIZE / 2;
+  _projectileRect.y = projectile.y - PROJECTILE_SIZE / 2;
+  return _projectileRect;
 }
 
 /**
@@ -215,9 +219,11 @@ function checkProjectileHit(projectile, players) {
  * @param {Object} victim - Player who was hit
  * @param {Object} attacker - Player who threw the projectile
  * @param {Object} projectile - The projectile that hit
+ * @param {Array} obstacles - Array of obstacle objects for collision resolution
+ * @param {number} arenaInset - Arena shrink amount (for sudden death)
  * @returns {Object} Event data { type, victimId, attackerId, isDeath }
  */
-function handleHit(victim, attacker, projectile) {
+function handleHit(victim, attacker, projectile, obstacles = [], arenaInset = 0) {
   const now = Date.now();
 
   // Reduce victim's hearts
@@ -234,28 +240,42 @@ function handleHit(victim, attacker, projectile) {
     const dirX = projectile.vx / speed;
     const dirY = projectile.vy / speed;
 
+    // Store old position for collision resolution
+    const oldX = victim.x;
+    const oldY = victim.y;
+
     // Apply knockback distance
     victim.x += dirX * KNOCKBACK_DISTANCE;
     victim.y += dirY * KNOCKBACK_DISTANCE;
 
-    // Clamp to arena bounds
+    // Clamp to arena bounds (accounting for arena inset during sudden death)
     const halfSize = PLAYER_SIZE / 2;
-    victim.x = Math.max(halfSize, Math.min(ARENA_WIDTH - halfSize, victim.x));
-    victim.y = Math.max(halfSize, Math.min(ARENA_HEIGHT - halfSize, victim.y));
+    const minBound = arenaInset + halfSize;
+    const maxBoundX = ARENA_WIDTH - arenaInset - halfSize;
+    const maxBoundY = ARENA_HEIGHT - arenaInset - halfSize;
+    victim.x = Math.max(minBound, Math.min(maxBoundX, victim.x));
+    victim.y = Math.max(minBound, Math.min(maxBoundY, victim.y));
+
+    // Check for obstacle collisions after knockback and resolve them
+    const playerRect = getPlayerRect(victim);
+    for (const obstacle of obstacles) {
+      if (rectsCollide(playerRect, obstacle)) {
+        resolveCollision(victim, obstacle, oldX, oldY);
+      }
+    }
   }
 
   // Victim drops their pillow (if they had one)
   victim.hasAmmo = false;
 
-  // Increment attacker's kill count
-  if (attacker) {
-    attacker.kills = (attacker.kills || 0) + 1;
-  }
-
   // Check for death
   const isDeath = victim.hearts <= 0;
 
   if (isDeath) {
+    // Increment attacker's kill count only on actual kill
+    if (attacker) {
+      attacker.kills = (attacker.kills || 0) + 1;
+    }
     victim.deaths = (victim.deaths || 0) + 1;
   }
 
@@ -341,8 +361,8 @@ function updateProjectiles(projectiles, dt, obstacles, players, arenaInset = 0) 
       // Find attacker
       const attacker = players[projectile.ownerId] || null;
 
-      // Handle the hit
-      const hitEvent = handleHit(hitPlayer, attacker, projectile);
+      // Handle the hit (pass obstacles and arenaInset for knockback collision resolution)
+      const hitEvent = handleHit(hitPlayer, attacker, projectile, obstacles, arenaInset);
       _events.push(hitEvent);
 
       // Don't add projectile to updated list (it's consumed)
