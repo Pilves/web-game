@@ -40,12 +40,12 @@
       '#c3aed6',  // Lavender - P4
     ],
 
-    // Spawn points
+    // Spawn points - positioned between beds and center (not inside beds!)
     SPAWN_POINTS: [
-      { x: 100, y: 100 },   // P1 - top left
-      { x: 1100, y: 100 },  // P2 - top right
-      { x: 100, y: 700 },   // P3 - bottom left
-      { x: 1100, y: 700 },  // P4 - bottom right
+      { x: 250, y: 250 },   // P1 - top left quadrant
+      { x: 950, y: 250 },   // P2 - top right quadrant
+      { x: 250, y: 550 },   // P3 - bottom left quadrant
+      { x: 950, y: 550 },   // P4 - bottom right quadrant
     ],
 
     // Pillow spawn points
