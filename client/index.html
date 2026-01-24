@@ -21,27 +21,27 @@
       <p class="tagline">"In the dark, everyone's a target."</p>
 
       <div class="menu-form">
-        <input type="text" id="player-name" placeholder="Enter your name" maxlength="12" autocomplete="off">
+        <input type="text" id="player-name" placeholder="Enter your name" maxlength="12" autocomplete="off" aria-label="Enter your player name">
 
         <div class="menu-buttons">
-          <button id="create-room-btn" class="btn btn-primary">Create Room</button>
+          <button id="create-room-btn" class="btn btn-primary" aria-label="Create a new game room">Create Room</button>
           <div class="join-room-group">
-            <input type="text" id="room-code-input" placeholder="CODE" maxlength="4" autocomplete="off">
-            <button id="join-room-btn" class="btn btn-secondary">Join</button>
+            <input type="text" id="room-code-input" placeholder="CODE" maxlength="4" autocomplete="off" aria-label="Enter 4-letter room code">
+            <button id="join-room-btn" class="btn btn-secondary" aria-label="Join existing room">Join</button>
           </div>
         </div>
       </div>
 
-      <p id="menu-error" class="error-message"></p>
+      <p id="menu-error" class="error-message" aria-live="polite" role="alert"></p>
 
-      <button id="controls-btn" class="btn btn-secondary btn-small">Controls</button>
+      <button id="controls-btn" class="btn btn-secondary btn-small" aria-label="Open controls settings">Controls</button>
     </div>
   </div>
 
   <!-- Controls Modal -->
-  <div id="controls-modal" class="modal">
+  <div id="controls-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="controls-modal-title">
     <div class="modal-content">
-      <h2>Controls</h2>
+      <h2 id="controls-modal-title">Controls</h2>
       <p class="modal-subtitle">Click a key to rebind. Press Escape to cancel.</p>
 
       <div class="controls-list">
@@ -80,8 +80,8 @@
       </div>
 
       <div class="modal-buttons">
-        <button id="reset-controls-btn" class="btn btn-danger">Reset to Default</button>
-        <button id="close-controls-btn" class="btn btn-primary">Done</button>
+        <button id="reset-controls-btn" class="btn btn-danger" aria-label="Reset controls to default settings">Reset to Default</button>
+        <button id="close-controls-btn" class="btn btn-primary" aria-label="Close controls menu">Done</button>
       </div>
     </div>
   </div>
@@ -91,30 +91,30 @@
     <div class="lobby-container">
       <div class="lobby-header">
         <h2>Room Code:</h2>
-        <div id="room-code-display" class="room-code">----</div>
-        <button id="copy-code-btn" class="btn btn-small">Copy</button>
+        <div id="room-code-display" class="room-code" aria-live="polite" aria-label="Room code">----</div>
+        <button id="copy-code-btn" class="btn btn-small" aria-label="Copy room code to clipboard">Copy</button>
       </div>
 
-      <div class="players-list" id="players-list">
+      <div class="players-list" id="players-list" role="list" aria-label="Players in lobby">
         <!-- Player items will be inserted here -->
       </div>
 
       <div class="lobby-settings" id="lobby-settings">
         <label>
-          Lives: <input type="number" id="lives-setting" min="1" max="5" value="3">
+          Lives: <input type="number" id="lives-setting" min="1" max="5" value="3" aria-label="Number of lives per player">
         </label>
         <label>
-          Time (sec): <input type="number" id="time-setting" min="60" max="300" step="30" value="180">
+          Time (sec): <input type="number" id="time-setting" min="60" max="300" step="30" value="180" aria-label="Game time limit in seconds">
         </label>
       </div>
 
       <div class="lobby-buttons">
-        <button id="ready-btn" class="btn btn-primary">Ready</button>
-        <button id="start-btn" class="btn btn-success" disabled>Start Game</button>
-        <button id="leave-btn" class="btn btn-danger">Leave</button>
+        <button id="ready-btn" class="btn btn-primary" aria-label="Toggle ready status">Ready</button>
+        <button id="start-btn" class="btn btn-success" disabled aria-label="Start the game">Start Game</button>
+        <button id="leave-btn" class="btn btn-danger" aria-label="Leave the lobby">Leave</button>
       </div>
 
-      <p id="lobby-status" class="status-message"></p>
+      <p id="lobby-status" class="status-message" aria-live="polite"></p>
     </div>
   </div>
 
@@ -123,13 +123,13 @@
     <!-- HUD Top -->
     <div id="hud-top">
       <div id="hud-left">
-        <div id="hearts-display">♥♥♥</div>
-        <div id="ammo-display">●</div>
+        <div id="hearts-display" aria-label="3 lives remaining">♥♥♥</div>
+        <div id="ammo-display" aria-label="Ammo status">●</div>
         <div id="player-name-display"></div>
       </div>
       <div id="hud-right">
-        <div id="timer-display">3:00</div>
-        <button id="pause-btn" class="btn btn-small">≡</button>
+        <div id="timer-display" aria-live="off" aria-label="Game timer">3:00</div>
+        <button id="pause-btn" class="btn btn-small" aria-label="Pause game">≡</button>
       </div>
     </div>
 
@@ -155,17 +155,17 @@
     </div>
 
     <!-- Countdown Overlay -->
-    <div id="countdown-overlay" class="overlay">
-      <div id="countdown-number">3</div>
+    <div id="countdown-overlay" class="overlay" role="alert" aria-live="assertive">
+      <div id="countdown-number" aria-label="Countdown">3</div>
     </div>
 
     <!-- Pause Menu Overlay -->
-    <div id="pause-overlay" class="overlay">
+    <div id="pause-overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="pause-menu-title">
       <div class="pause-menu">
-        <h2>Game Paused</h2>
-        <p id="paused-by-text">Paused by: Player</p>
-        <button id="resume-btn" class="btn btn-primary">Resume</button>
-        <button id="quit-btn" class="btn btn-danger">Quit to Lobby</button>
+        <h2 id="pause-menu-title">Game Paused</h2>
+        <p id="paused-by-text" aria-live="polite">Paused by: Player</p>
+        <button id="resume-btn" class="btn btn-primary" aria-label="Resume game">Resume</button>
+        <button id="quit-btn" class="btn btn-danger" aria-label="Quit to lobby">Quit to Lobby</button>
       </div>
     </div>
   </div>
@@ -180,7 +180,7 @@
       </div>
 
       <div class="gameover-buttons">
-        <button id="play-again-btn" class="btn btn-primary">Play Again</button>
+        <button id="play-again-btn" class="btn btn-primary" aria-label="Return to lobby and play again">Play Again</button>
       </div>
 
       <p id="auto-return-text" class="status-message">Returning to lobby in 30s...</p>
@@ -188,7 +188,7 @@
   </div>
 
   <!-- Notifications -->
-  <div id="notifications"></div>
+  <div id="notifications" aria-live="polite" role="status"></div>
 
   <!-- Scripts -->
   <script src="/socket.io/socket.io.js"></script>
