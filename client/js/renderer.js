@@ -144,7 +144,8 @@ export class Renderer {
       dirEl.style.transform = `rotate(${facing}rad)`;
     }
 
-    // Flashlight cone
+    // Flashlight cone and class
+    el.classList.toggle('flashlight-on', !!flashlightOn);
     const cone = el.querySelector('.flashlight-cone');
     if (cone) {
       if (flashlightOn) {

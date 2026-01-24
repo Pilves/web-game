@@ -76,6 +76,50 @@ class GameRoom {
   }
 
   /**
+   * Generate a random spawn position that doesn't overlap with obstacles
+   * @param {number} padding - Extra padding around obstacles (default 30)
+   * @returns {Object} {x, y} coordinates
+   */
+  getRandomSpawnPosition(padding = 30) {
+    const pickupSize = CONSTANTS.PROJECTILE_SIZE;
+    const margin = 50; // Stay away from arena edges
+
+    const minX = margin + pickupSize / 2;
+    const maxX = CONSTANTS.ARENA_WIDTH - margin - pickupSize / 2;
+    const minY = margin + pickupSize / 2;
+    const maxY = CONSTANTS.ARENA_HEIGHT - margin - pickupSize / 2;
+
+    // Try to find a valid position (max 100 attempts)
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const x = minX + Math.random() * (maxX - minX);
+      const y = minY + Math.random() * (maxY - minY);
+
+      // Check if position overlaps with any obstacle (with padding)
+      const pickupRect = {
+        x: x - pickupSize / 2 - padding,
+        y: y - pickupSize / 2 - padding,
+        width: pickupSize + padding * 2,
+        height: pickupSize + padding * 2,
+      };
+
+      let overlaps = false;
+      for (const obstacle of CONSTANTS.OBSTACLES) {
+        if (Physics.rectsCollide(pickupRect, obstacle)) {
+          overlaps = true;
+          break;
+        }
+      }
+
+      if (!overlaps) {
+        return { x, y };
+      }
+    }
+
+    // Fallback: return center of arena if no valid position found
+    return { x: CONSTANTS.ARENA_WIDTH / 2, y: CONSTANTS.ARENA_HEIGHT / 2 };
+  }
+
+  /**
    * Add player from lobby to game state
    * @param {Object} socket - Player socket
    * @param {string} name - Player name
@@ -114,7 +158,7 @@ class GameRoom {
         facing: 0, // radians, 0 = right
         flashlightOn: true,
         hearts: this.settings.lives,
-        hasAmmo: true,  // Start with ammo for testing
+        hasAmmo: false,
         stunnedUntil: 0,
         invincibleUntil: 0,
         lastThrowTime: 0,
@@ -134,19 +178,18 @@ class GameRoom {
       this.gamePlayers.set(player.id, gamePlayer);
     });
 
-    // Initialize pickups at spawn points
+    // Initialize pickups at random positions (avoiding obstacles)
     this.pickups = [];
-    CONSTANTS.PILLOW_SPAWNS.forEach((spawn, index) => {
-      if (index < CONSTANTS.PILLOWS_ON_MAP) {
-        this.pickups.push({
-          id: this.nextPickupId++,
-          x: spawn.x,
-          y: spawn.y,
-          active: true,
-          respawnAt: 0,
-        });
-      }
-    });
+    for (let i = 0; i < CONSTANTS.PILLOWS_ON_MAP; i++) {
+      const spawn = this.getRandomSpawnPosition();
+      this.pickups.push({
+        id: this.nextPickupId++,
+        x: spawn.x,
+        y: spawn.y,
+        active: true,
+        respawnAt: 0,
+      });
+    }
 
     // Reset game state
     this.projectiles = [];
@@ -392,6 +435,10 @@ class GameRoom {
   respawnPickups(now) {
     for (const pickup of this.pickups) {
       if (!pickup.active && pickup.respawnAt > 0 && now >= pickup.respawnAt) {
+        // Get new random position for respawn
+        const newPos = this.getRandomSpawnPosition();
+        pickup.x = newPos.x;
+        pickup.y = newPos.y;
         pickup.active = true;
         pickup.respawnAt = 0;
 
@@ -585,6 +632,7 @@ class GameRoom {
     // Handle flashlight toggle (inside inputData.input)
     if (inputData.input?.flashlight) {
       player.flashlightOn = !player.flashlightOn;
+      console.log(`[GameRoom ${this.code}] Player ${playerId.substring(0, 8)} flashlight toggled to: ${player.flashlightOn}`);
     }
 
     // Handle throw action (inside inputData.input)
