@@ -2,12 +2,11 @@
 import { Network } from './network.js';
 import { Input } from './input.js';
 import { Renderer } from './renderer.js';
-import { Audio, audio } from './audio.js';
-import { Effects, effects } from './effects.js';
+import { audio } from './audio.js';
+import { effects } from './effects.js';
 import { UI } from './ui.js';
 import { Vision } from './vision.js';
-import { CONFIG, controls } from './config.js';
-import { ControlsManager } from './config.js';
+import { CONFIG, controls, ControlsManager } from './config.js';
 
 class Game {
   constructor() {
@@ -40,6 +39,9 @@ class Game {
     // Local player for client-side prediction
     this.localPlayer = null;
 
+    // Arena inset (for sudden death shrinking)
+    this.arenaInset = 0;
+
     // Lobby data
     this.lobbyData = null;
     this.isHost = false;
@@ -57,6 +59,9 @@ class Game {
 
     // Audio context resume flag
     this.audioInitialized = false;
+
+    // Bind gameLoop once to avoid creating new function every frame
+    this._boundGameLoop = this.gameLoop.bind(this);
   }
 
   // Start the game
@@ -98,7 +103,7 @@ class Game {
     // Start game loop
     this.running = true;
     console.log('[Game] Starting game loop');
-    requestAnimationFrame((t) => this.gameLoop(t));
+    requestAnimationFrame(this._boundGameLoop);
   }
 
   // Main game loop
@@ -154,11 +159,14 @@ class Game {
       console.log('[Game] Current state:', this.state, '| myId:', this.myId);
     }
 
-    requestAnimationFrame((t) => this.gameLoop(t));
+    requestAnimationFrame(this._boundGameLoop);
   }
 
   // Handle incoming server state
   onServerState(state) {
+    // Validate state object before accessing properties
+    if (!state || typeof state !== 'object') return;
+
     // Check sequence number to ignore out-of-order packets
     if (state.seq !== undefined && state.seq <= this.lastServerSeq) {
       // Out of order packet, ignore
@@ -187,6 +195,11 @@ class Game {
     this.prevServerState = this.serverState;
     this.serverState = state;
     this.stateTime = 0;
+
+    // Update arena inset from server state (for sudden death)
+    if (state.inset !== undefined) {
+      this.arenaInset = state.inset;
+    }
 
     // Reconcile local player position with server
     this.reconcileLocalPlayer(state);
@@ -256,13 +269,18 @@ class Game {
       }
 
       case 'pickup': {
-        // [playerId, x, y]
+        // [playerId, pickupId] - get pickup position from state
         const playerId = data[0];
+        const pickupId = data[1];
         if (playerId === this.myId) {
           this.audio.play('pickup');
-        } else if (this.localPlayer) {
-          this.audio.playPositional('pickup', data[1], data[2],
-            this.localPlayer.x, this.localPlayer.y);
+        } else if (this.localPlayer && this.serverState?.k) {
+          // Find the pickup position from state
+          const pickup = this.serverState.k.find(p => p[0] === pickupId);
+          if (pickup) {
+            this.audio.playPositional('pickup', pickup[1], pickup[2],
+              this.localPlayer.x, this.localPlayer.y);
+          }
         }
         break;
       }
@@ -315,8 +333,28 @@ class Game {
   predictLocalPlayer(input, dt) {
     if (!this.localPlayer) return;
 
-    // Don't predict if stunned
-    if (this.localPlayer.stunned) return;
+    // Initialize velocity if not present
+    if (this.localPlayer.vx === undefined) this.localPlayer.vx = 0;
+    if (this.localPlayer.vy === undefined) this.localPlayer.vy = 0;
+
+    // Handle stunned state - apply friction but don't allow new input
+    if (this.localPlayer.stunned) {
+      // Apply friction while stunned (same as server: PLAYER_FRICTION = 0.85)
+      const PLAYER_FRICTION = 0.85;
+      this.localPlayer.vx *= PLAYER_FRICTION;
+      this.localPlayer.vy *= PLAYER_FRICTION;
+
+      // Apply velocity
+      this.localPlayer.x += this.localPlayer.vx * dt;
+      this.localPlayer.y += this.localPlayer.vy * dt;
+
+      // Update facing direction
+      this.localPlayer.facing = input.facing;
+
+      // Handle boundary and collision
+      this.applyBoundaryAndCollision();
+      return;
+    }
 
     // Calculate speed based on sprint
     const speed = input.sprint ? CONFIG.PLAYER_SPRINT_SPEED : CONFIG.PLAYER_SPEED;
@@ -337,6 +375,10 @@ class Game {
       vy = (vy / length) * speed;
     }
 
+    // Store velocity for stun friction continuity
+    this.localPlayer.vx = vx;
+    this.localPlayer.vy = vy;
+
     // Apply velocity
     this.localPlayer.x += vx * dt;
     this.localPlayer.y += vy * dt;
@@ -344,21 +386,53 @@ class Game {
     // Update facing direction
     this.localPlayer.facing = input.facing;
 
-    // Wrap around arena bounds like Snake
+    // Handle boundary and collision
+    this.applyBoundaryAndCollision();
+  }
+
+  // Apply boundary wrapping/clamping and obstacle collision
+  applyBoundaryAndCollision() {
     const halfSize = CONFIG.PLAYER_SIZE / 2;
     const arenaWidth = CONFIG.ARENA_WIDTH;
     const arenaHeight = CONFIG.ARENA_HEIGHT;
 
-    if (this.localPlayer.x < -halfSize) {
-      this.localPlayer.x = arenaWidth + halfSize + (this.localPlayer.x + halfSize);
-    } else if (this.localPlayer.x > arenaWidth + halfSize) {
-      this.localPlayer.x = -halfSize + (this.localPlayer.x - arenaWidth - halfSize);
-    }
+    // Check if sudden death is active (arena is shrinking)
+    if (this.arenaInset > 0) {
+      // During sudden death, clamp to shrinking arena bounds
+      const minX = this.arenaInset + halfSize;
+      const maxX = arenaWidth - this.arenaInset - halfSize;
+      const minY = this.arenaInset + halfSize;
+      const maxY = arenaHeight - this.arenaInset - halfSize;
 
-    if (this.localPlayer.y < -halfSize) {
-      this.localPlayer.y = arenaHeight + halfSize + (this.localPlayer.y + halfSize);
-    } else if (this.localPlayer.y > arenaHeight + halfSize) {
-      this.localPlayer.y = -halfSize + (this.localPlayer.y - arenaHeight - halfSize);
+      if (this.localPlayer.x < minX) {
+        this.localPlayer.x = minX;
+        this.localPlayer.vx = 0;
+      }
+      if (this.localPlayer.x > maxX) {
+        this.localPlayer.x = maxX;
+        this.localPlayer.vx = 0;
+      }
+      if (this.localPlayer.y < minY) {
+        this.localPlayer.y = minY;
+        this.localPlayer.vy = 0;
+      }
+      if (this.localPlayer.y > maxY) {
+        this.localPlayer.y = maxY;
+        this.localPlayer.vy = 0;
+      }
+    } else {
+      // Normal mode: wrap around arena bounds like Snake
+      if (this.localPlayer.x < -halfSize) {
+        this.localPlayer.x = arenaWidth + halfSize + (this.localPlayer.x + halfSize);
+      } else if (this.localPlayer.x > arenaWidth + halfSize) {
+        this.localPlayer.x = -halfSize + (this.localPlayer.x - arenaWidth - halfSize);
+      }
+
+      if (this.localPlayer.y < -halfSize) {
+        this.localPlayer.y = arenaHeight + halfSize + (this.localPlayer.y + halfSize);
+      } else if (this.localPlayer.y > arenaHeight + halfSize) {
+        this.localPlayer.y = -halfSize + (this.localPlayer.y - arenaHeight - halfSize);
+      }
     }
 
     // Simple obstacle collision
@@ -470,10 +544,8 @@ class Game {
   }
 
   onJoinError(message) {
-    const errorEl = document.getElementById('menu-error');
-    if (errorEl) {
-      errorEl.textContent = message;
-    }
+    // Use ui.showError to display error and re-enable menu buttons
+    this.ui.showError(message);
   }
 
   onLobbyUpdate(data) {
@@ -579,7 +651,7 @@ class Game {
   onCountdownCancelled(reason) {
     console.log('[Game] Countdown cancelled:', reason);
     this.state = 'lobby';
-    this.showScreen('lobby');
+    this.ui.showScreen('lobby');
 
     // Hide countdown overlay
     const overlay = document.getElementById('countdown-overlay');
@@ -621,6 +693,20 @@ class Game {
     this.showNotification(`${data.name} left the game`);
   }
 
+  onSuddenDeath() {
+    // Show sudden death notification
+    this.showNotification('SUDDEN DEATH - Arena is shrinking!');
+
+    // Play alarm sound if available
+    this.audio.play('sudden-death');
+
+    // Add visual effect to arena (optional CSS class)
+    const arena = document.getElementById('arena');
+    if (arena) {
+      arena.classList.add('sudden-death');
+    }
+  }
+
   onGameOver(data) {
     this.state = 'gameover';
     this.ui.showScreen('gameover');
@@ -629,11 +715,12 @@ class Game {
     const winnerText = document.getElementById('winner-text');
     if (winnerText) {
       if (data.winner) {
-        const winnerName = this.lobbyData?.players?.find(p => p.id === data.winner)?.name || 'Someone';
+        // data.winner is an object with {id, name, color, kills}
+        const winnerName = data.winner.name || 'Someone';
         winnerText.textContent = `${winnerName} Wins!`;
 
         // Play victory sound
-        if (data.winner === this.myId) {
+        if (data.winner.id === this.myId) {
           this.audio.play('victory');
         }
       } else {
@@ -879,12 +966,47 @@ class Game {
       renderControls();
     };
 
+    // Store the element that had focus before modal opened
+    let previouslyFocusedElement = null;
+
+    // Focus trap handler for accessibility
+    const handleFocusTrap = (e) => {
+      if (e.key !== 'Tab') return;
+
+      const focusableElements = modal.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      const firstFocusable = focusableElements[0];
+      const lastFocusable = focusableElements[focusableElements.length - 1];
+
+      if (e.shiftKey) {
+        // Shift + Tab
+        if (document.activeElement === firstFocusable) {
+          e.preventDefault();
+          lastFocusable.focus();
+        }
+      } else {
+        // Tab
+        if (document.activeElement === lastFocusable) {
+          e.preventDefault();
+          firstFocusable.focus();
+        }
+      }
+    };
+
     // Open modal
     openBtn.addEventListener('click', () => {
+      previouslyFocusedElement = document.activeElement;
       modal.classList.add('active');
       renderControls();
       document.addEventListener('keydown', handleKeyDown, true);
       document.addEventListener('mousedown', handleMouseDown, true);
+      document.addEventListener('keydown', handleFocusTrap);
+      // Focus first focusable element in modal for accessibility
+      const firstFocusable = modal.querySelector('button:not([disabled]), [href], input:not([disabled])');
+      if (firstFocusable) {
+        firstFocusable.focus();
+      }
     });
 
     // Close modal
@@ -896,6 +1018,11 @@ class Game {
       }
       document.removeEventListener('keydown', handleKeyDown, true);
       document.removeEventListener('mousedown', handleMouseDown, true);
+      document.removeEventListener('keydown', handleFocusTrap);
+      // Return focus to the element that opened the modal for accessibility
+      if (previouslyFocusedElement) {
+        previouslyFocusedElement.focus();
+      }
     };
 
     closeBtn?.addEventListener('click', closeModal);
