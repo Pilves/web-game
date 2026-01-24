@@ -12,12 +12,16 @@ export class Input {
     this.flashlightToggle = false;
     this._loggedKeys = false;
 
+    // Store handler references for cleanup
+    this._handlers = {};
+
     this.bindEvents();
     console.log('[Input] Events bound');
   }
 
   bindEvents() {
-    window.addEventListener('keydown', (e) => {
+    // Define handlers as bound methods for later removal
+    this._handlers.keydown = (e) => {
       // Don't capture keys when typing in input fields
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
         return;
@@ -52,17 +56,17 @@ export class Input {
         console.log('[Input] Pause pressed');
         this.game.togglePause();
       }
-    });
+    };
 
-    window.addEventListener('keyup', (e) => {
+    this._handlers.keyup = (e) => {
       // Don't track key releases from input fields
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
         return;
       }
       this.keys[e.code] = false;
-    });
+    };
 
-    window.addEventListener('mousemove', (e) => {
+    this._handlers.mousemove = (e) => {
       const arena = document.getElementById('arena');
       if (!arena) return;
 
@@ -79,9 +83,9 @@ export class Input {
         const dy = this.mouseY - this.game.localPlayer.y;
         this.facing = Math.atan2(dy, dx);
       }
-    });
+    };
 
-    window.addEventListener('mousedown', (e) => {
+    this._handlers.mousedown = (e) => {
       if (e.button === 0) this.keys['Mouse0'] = true;  // Left click
       if (e.button === 1) this.keys['Mouse1'] = true;  // Middle click
       if (e.button === 2) {
@@ -91,21 +95,42 @@ export class Input {
           this.flashlightToggle = true;
         }
       }
-    });
+    };
 
-    window.addEventListener('mouseup', (e) => {
+    this._handlers.mouseup = (e) => {
       if (e.button === 0) this.keys['Mouse0'] = false;
       if (e.button === 1) this.keys['Mouse1'] = false;
       if (e.button === 2) this.keys['Mouse2'] = false;
-    });
+    };
 
-    // Prevent context menu on right click
-    window.addEventListener('contextmenu', (e) => e.preventDefault());
+    this._handlers.contextmenu = (e) => e.preventDefault();
 
-    // Handle window blur - reset all keys
-    window.addEventListener('blur', () => {
+    this._handlers.blur = () => {
       this.keys = {};
-    });
+    };
+
+    // Add all event listeners
+    window.addEventListener('keydown', this._handlers.keydown);
+    window.addEventListener('keyup', this._handlers.keyup);
+    window.addEventListener('mousemove', this._handlers.mousemove);
+    window.addEventListener('mousedown', this._handlers.mousedown);
+    window.addEventListener('mouseup', this._handlers.mouseup);
+    window.addEventListener('contextmenu', this._handlers.contextmenu);
+    window.addEventListener('blur', this._handlers.blur);
+  }
+
+  // Remove all event listeners to prevent memory leaks
+  destroy() {
+    if (this._handlers) {
+      window.removeEventListener('keydown', this._handlers.keydown);
+      window.removeEventListener('keyup', this._handlers.keyup);
+      window.removeEventListener('mousemove', this._handlers.mousemove);
+      window.removeEventListener('mousedown', this._handlers.mousedown);
+      window.removeEventListener('mouseup', this._handlers.mouseup);
+      window.removeEventListener('contextmenu', this._handlers.contextmenu);
+      window.removeEventListener('blur', this._handlers.blur);
+      this._handlers = {};
+    }
   }
 
   getState() {
