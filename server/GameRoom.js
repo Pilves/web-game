@@ -207,7 +207,7 @@ class GameRoom {
         facing: 0, // radians, 0 = right
         flashlightOn: true,
         hearts: this.settings.lives,
-        hasAmmo: false,
+        hasAmmo: true,  // Players start with 1 pillow
         stunnedUntil: 0,
         invincibleUntil: 0,
         lastThrowTime: 0,

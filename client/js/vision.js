@@ -137,7 +137,12 @@ export class Vision {
       return true;
     }
 
-    // If viewer's flashlight is off, they can't see anyone
+    // If TARGET's flashlight is on, they reveal themselves (visible to everyone)
+    if (target.flashlightOn) {
+      return true;
+    }
+
+    // If viewer's flashlight is off, they can't see anyone (who has their flashlight off)
     if (!viewer.flashlightOn) {
       return false;
     }
