@@ -51,6 +51,11 @@ export class Input {
         console.log('[Input] Flashlight toggle');
       }
 
+      // Log throw key press
+      if (controls.isAction('throw', e.code) && !e.repeat) {
+        console.log('[Input] Throw key pressed:', e.code);
+      }
+
       // Pause
       if (controls.isAction('pause', e.code)) {
         console.log('[Input] Pause pressed');

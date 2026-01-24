@@ -186,9 +186,10 @@ class Game {
         seq: state.seq,
         gameState: state.s,
         playerCount: state.p?.length,
-        players: state.p?.map(p => ({ id: p[0].substring(0, 8), x: p[1], y: p[2] })),
+        pickups: state.k?.length || 0,
+        pickupsData: state.k,
         projectiles: state.j?.length || 0,
-        events: state.e?.length || 0,
+        projectilesData: state.j,
         myId: this.myId?.substring(0, 8)
       });
     }
