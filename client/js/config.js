@@ -1,6 +1,11 @@
 // Client-side configuration constants
 // SHARED_CONSTANTS is loaded via script tag from /shared/constants.js
 
+// Validate SHARED_CONSTANTS is loaded
+if (typeof SHARED_CONSTANTS === 'undefined') {
+  console.error('[Config] SHARED_CONSTANTS is undefined. Ensure /shared/constants.js is loaded before this module.');
+}
+
 // Build CONFIG by spreading shared constants and adding client-only ones
 export const CONFIG = {
   // Import all shared constants (loaded globally via script tag)
