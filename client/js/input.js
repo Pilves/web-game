@@ -133,7 +133,7 @@ export class Input {
     }
   }
 
-  getState() {
+  getState(consumeToggles = true) {
     // Check each action against configured keys
     const isPressed = (action) => {
       const keys = controls.get(action);
@@ -151,8 +151,10 @@ export class Input {
       facing: this.facing,
     };
 
-    // Reset toggle flags after reading
-    this.flashlightToggle = false;
+    // Only reset toggle flags when actually consuming (sending to server)
+    if (consumeToggles) {
+      this.flashlightToggle = false;
+    }
 
     return input;
   }

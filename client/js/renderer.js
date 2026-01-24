@@ -202,6 +202,14 @@ export class Renderer {
     // Skip if no projectiles
     if (!currState.j) return;
 
+    if (currState.j.length > 0) {
+      if (this._projLogCount === undefined) this._projLogCount = 0;
+      if (this._projLogCount < 10) {
+        console.log('[Renderer] renderProjectiles:', currState.j);
+        this._projLogCount++;
+      }
+    }
+
     // Build Map from prevState projectiles for O(1) lookups
     let prevProjectileMap = null;
     if (prevState && prevState.j) {
@@ -254,6 +262,12 @@ export class Renderer {
 
   renderPickups(pickups) {
     if (!pickups) return;
+
+    if (this._pickupLogCount === undefined) this._pickupLogCount = 0;
+    if (this._pickupLogCount < 5) {
+      console.log('[Renderer] renderPickups called with:', pickups);
+      this._pickupLogCount++;
+    }
 
     for (const pickup of pickups) {
       const [id, x, y, active] = pickup;

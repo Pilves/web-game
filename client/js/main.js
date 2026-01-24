@@ -125,11 +125,13 @@ class Game {
       // Update interpolation timer
       this.stateTime += cappedDt * 1000;
 
-      // Poll input and send to server (throttled to 20Hz)
-      const input = this.input.getState();
+      // Poll input - movement every frame, send throttled
+      const input = this.input.getState(false); // Don't consume toggles yet
       const now = performance.now();
       if (now - this.lastInputSendTime >= this.inputSendInterval) {
-        this.network.sendInput(input);
+        // Get input with toggle consumption for sending
+        const sendInput = this.input.getState(true); // Consume toggles
+        this.network.sendInput(sendInput);
         this.lastInputSendTime = now;
       }
 

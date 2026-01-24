@@ -233,6 +233,7 @@ class GameRoom {
     this.pickups = [];
     for (let i = 0; i < CONSTANTS.PILLOWS_ON_MAP; i++) {
       const spawn = this.getRandomSpawnPosition();
+      console.log(`[GameRoom ${this.code}] Pickup ${i + 1} spawning at:`, spawn);
       this.pickups.push({
         id: this.nextPickupId++,
         x: spawn.x,
@@ -241,6 +242,7 @@ class GameRoom {
         respawnAt: 0,
       });
     }
+    console.log(`[GameRoom ${this.code}] All pickups:`, this.pickups);
 
     // Reset game state
     this.projectiles = [];
@@ -733,12 +735,18 @@ class GameRoom {
 
     // Check if player can throw
     if (!Combat.canThrow(player, now)) {
+      console.log(`[GameRoom ${this.code}] Player ${player.name} cannot throw:`, {
+        hasAmmo: player.hasAmmo,
+        cooldown: now - (player.lastThrowTime || 0),
+        stunned: player.stunnedUntil > now
+      });
       return;
     }
 
     // Create projectile
     const projectileId = `proj_${this.nextProjectileId++}`;
     const projectile = Combat.createProjectile(player, projectileId);
+    console.log(`[GameRoom ${this.code}] Player ${player.name} threw projectile:`, projectile);
 
     this.projectiles.push(projectile);
 
