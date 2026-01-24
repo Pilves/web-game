@@ -11,6 +11,38 @@ class GameManager {
     this.rooms = new Map();      // roomCode -> GameRoom
     this.players = new Map();    // socket.id -> player object
     this.roomCreationCooldown = new Map(); // socket.id -> timestamp (rate limiting)
+    this.eventRateLimits = new Map(); // socketId:event -> lastTime (rate limiting for lobby events)
+  }
+
+  /**
+   * Check if an event is rate limited for a socket
+   * @param {string} socketId - The socket ID
+   * @param {string} event - The event name
+   * @param {number} cooldownMs - Cooldown in milliseconds (default 500ms)
+   * @returns {boolean} - true if allowed, false if rate limited
+   */
+  checkEventRateLimit(socketId, event, cooldownMs = 500) {
+    const key = `${socketId}:${event}`;
+    const now = Date.now();
+    const last = this.eventRateLimits.get(key) || 0;
+    if (now - last < cooldownMs) {
+      return false; // Rate limited
+    }
+    this.eventRateLimits.set(key, now);
+    return true;
+  }
+
+  /**
+   * Clean up rate limit entries for a disconnected socket
+   * @param {string} socketId - The socket ID to clean up
+   */
+  cleanupRateLimits(socketId) {
+    const prefix = `${socketId}:`;
+    for (const key of this.eventRateLimits.keys()) {
+      if (key.startsWith(prefix)) {
+        this.eventRateLimits.delete(key);
+      }
+    }
   }
 
   /**
@@ -180,7 +212,10 @@ class GameManager {
     // Join socket.io room
     socket.join(roomCode);
 
-    // Notify all players in room
+    // Notify the joining player directly first (ensures they receive it)
+    socket.emit('room-joined', { code: roomCode });
+
+    // Then notify all players in room (including the new player via room broadcast)
     this.broadcastLobbyUpdate(room);
 
     console.log(`${playerName} (${socket.id}) joined room ${roomCode}`);
@@ -190,6 +225,9 @@ class GameManager {
    * Toggle player ready state
    */
   toggleReady(socket) {
+    // Rate limit: 500ms cooldown
+    if (!this.checkEventRateLimit(socket.id, 'toggle-ready', 500)) return;
+
     const player = this.players.get(socket.id);
     if (!player) return;
 
@@ -206,6 +244,9 @@ class GameManager {
    * Host kicks a player from the room
    */
   kickPlayer(socket, data) {
+    // Rate limit: 500ms cooldown
+    if (!this.checkEventRateLimit(socket.id, 'kick-player', 500)) return;
+
     const { playerId } = data || {};
     if (!playerId) return;
 
@@ -254,6 +295,9 @@ class GameManager {
    * Host updates game settings
    */
   updateSettings(socket, data) {
+    // Rate limit: 200ms cooldown (faster for UI responsiveness)
+    if (!this.checkEventRateLimit(socket.id, 'update-settings', 200)) return;
+
     if (!data || typeof data !== 'object') return;
 
     const player = this.players.get(socket.id);
@@ -356,6 +400,9 @@ class GameManager {
    * Handle pause request
    */
   pauseGame(socket) {
+    // Rate limit: 1000ms cooldown (prevent pause spam)
+    if (!this.checkEventRateLimit(socket.id, 'pause', 1000)) return;
+
     const player = this.players.get(socket.id);
     if (!player) return;
 
@@ -369,6 +416,9 @@ class GameManager {
    * Handle resume request
    */
   resumeGame(socket) {
+    // Rate limit: 1000ms cooldown (prevent resume spam)
+    if (!this.checkEventRateLimit(socket.id, 'resume', 1000)) return;
+
     const player = this.players.get(socket.id);
     if (!player) return;
 
@@ -382,6 +432,9 @@ class GameManager {
    * Handle player quitting the game
    */
   quitGame(socket) {
+    // Rate limit: 1000ms cooldown (prevent quit spam)
+    if (!this.checkEventRateLimit(socket.id, 'quit', 1000)) return;
+
     const player = this.players.get(socket.id);
     if (!player) return;
 
@@ -445,6 +498,9 @@ class GameManager {
    * Handle player disconnect
    */
   handleDisconnect(socket) {
+    // Clean up rate limit entries for this socket
+    this.cleanupRateLimits(socket.id);
+
     const player = this.players.get(socket.id);
     if (!player) {
       console.log(`Unknown player disconnected: ${socket.id}`);
