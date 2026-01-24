@@ -2,7 +2,10 @@
 import { CONFIG } from './config.js';
 
 // Use shared geometry functions (loaded via script tag before modules)
-const { pointInRect, normalizeAngle, hasLineOfSight } = window.GEOMETRY;
+if (typeof window.GEOMETRY === 'undefined') {
+  console.error('[Vision] window.GEOMETRY is undefined. Ensure geometry.js is loaded before this module.');
+}
+const { pointInRect, normalizeAngle, hasLineOfSight } = window.GEOMETRY || {};
 
 export class Vision {
   constructor(game) {
@@ -21,6 +24,11 @@ export class Vision {
   // Get cached player element or query and cache it
   getPlayerElement(id) {
     let el = this.playerElementCache.get(id);
+    // Check if cached element is still connected to DOM
+    if (el && !el.isConnected) {
+      this.playerElementCache.delete(id);
+      el = null;
+    }
     if (!el) {
       el = document.querySelector(`.player[data-id="${id}"]`);
       if (el) {
@@ -33,6 +41,11 @@ export class Vision {
   // Get cached pickup element or query and cache it
   getPickupElement(id) {
     let el = this.pickupElementCache.get(id);
+    // Check if cached element is still connected to DOM
+    if (el && !el.isConnected) {
+      this.pickupElementCache.delete(id);
+      el = null;
+    }
     if (!el) {
       el = document.getElementById(`pickup-${id}`);
       if (el) {
