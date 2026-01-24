@@ -80,12 +80,13 @@ class GameRoom {
     // Cached object representation of gamePlayers (updated when players change)
     this.gamePlayersObject = {};
 
-    // Rate limiting: Track input timestamps per player
-    this.inputRateTracking = new Map(); // playerId -> { timestamps: [], lastWarning: 0 }
+    // Rate limiting: Track input counts per player using time window counter
+    this.inputRateTracking = new Map(); // playerId -> { count: number, windowStart: timestamp, lastWarning: timestamp }
   }
 
   /**
    * Check if input rate is within limits (prevents flooding)
+   * Uses a simple counter with time window instead of filtering arrays
    * @param {string} playerId - Player socket ID
    * @returns {boolean} true if input should be processed, false if rate limited
    */
@@ -96,25 +97,30 @@ class GameRoom {
 
     let tracking = this.inputRateTracking.get(playerId);
     if (!tracking) {
-      tracking = { timestamps: [], lastWarning: 0 };
+      tracking = { count: 0, windowStart: now, lastWarning: 0 };
       this.inputRateTracking.set(playerId, tracking);
     }
 
-    // Remove timestamps older than the window
-    tracking.timestamps = tracking.timestamps.filter(t => now - t < windowMs);
+    // Check if we need to reset the window
+    if (now - tracking.windowStart >= windowMs) {
+      // Start a new window
+      tracking.count = 1;
+      tracking.windowStart = now;
+      return true;
+    }
 
     // Check if over limit
-    if (tracking.timestamps.length >= maxPackets) {
+    if (tracking.count >= maxPackets) {
       // Log warning at most once per second
       if (now - tracking.lastWarning > 1000) {
-        console.log(`[GameRoom ${this.code}] Rate limiting player ${playerId.substring(0, 8)}: ${tracking.timestamps.length} packets/sec`);
+        console.log(`[GameRoom ${this.code}] Rate limiting player ${playerId.substring(0, 8)}: ${tracking.count} packets/sec`);
         tracking.lastWarning = now;
       }
       return false;
     }
 
-    // Add current timestamp
-    tracking.timestamps.push(now);
+    // Increment counter
+    tracking.count++;
     return true;
   }
 
@@ -206,6 +212,7 @@ class GameRoom {
         invincibleUntil: 0,
         lastThrowTime: 0,
         lastFootstepTime: 0,
+        lastFlashlightToggle: 0, // debounce flashlight toggle
         input: {
           up: false,
           down: false,
@@ -339,14 +346,17 @@ class GameRoom {
   physicsTick(dt) {
     const now = Date.now();
 
+    // Cache players array to avoid multiple iterations over Map
+    const players = Array.from(this.gamePlayers.values());
+
     // 1. Apply inputs to player velocities
-    for (const player of this.gamePlayers.values()) {
+    for (const player of players) {
       if (!player.connected || player.hearts <= 0) continue;
       Physics.applyInput(player, player.input, dt);
     }
 
     // 2. Move players
-    for (const player of this.gamePlayers.values()) {
+    for (const player of players) {
       if (!player.connected || player.hearts <= 0) continue;
       Physics.movePlayer(player, dt, CONSTANTS.OBSTACLES, this.arenaInset);
     }
@@ -365,21 +375,16 @@ class GameRoom {
     // Add projectile events to events array
     for (const event of projectileResult.events) {
       this.events.push([event.type, event.victimId || null, event.attackerId || null]);
-
-      // Track deaths
-      if (event.type === 'death') {
-        this.events.push(['death', event.victimId, event.attackerId]);
-      }
     }
 
     // 4. Check pickup collisions
-    this.checkPickupCollisions();
+    this.checkPickupCollisions(players);
 
     // 5. Check footstep sounds
-    this.checkFootstepSounds(now);
+    this.checkFootstepSounds(now, players);
 
     // 6. Update timers
-    this.updateTimers(dt);
+    this.updateTimers(dt, players);
 
     // 7. Update muzzle flash
     if (this.muzzleFlashActive && now >= this.muzzleFlashUntil) {
@@ -395,9 +400,10 @@ class GameRoom {
 
   /**
    * Check if players pick up pillows
+   * @param {Array} players - Cached array of player objects
    */
-  checkPickupCollisions() {
-    for (const player of this.gamePlayers.values()) {
+  checkPickupCollisions(players) {
+    for (const player of players) {
       if (!player.connected || player.hearts <= 0 || player.hasAmmo) continue;
 
       const playerRect = Physics.getPlayerRect(player);
@@ -428,9 +434,10 @@ class GameRoom {
   /**
    * Check and emit footstep sounds for sprinting players
    * @param {number} now - Current timestamp
+   * @param {Array} players - Cached array of player objects
    */
-  checkFootstepSounds(now) {
-    for (const player of this.gamePlayers.values()) {
+  checkFootstepSounds(now, players) {
+    for (const player of players) {
       if (!player.connected || player.hearts <= 0) continue;
 
       // Check if player is sprinting and moving
@@ -452,8 +459,9 @@ class GameRoom {
   /**
    * Update game timers
    * @param {number} dt - Delta time in seconds
+   * @param {Array} players - Cached array of player objects
    */
-  updateTimers(dt) {
+  updateTimers(dt, players) {
     // Update time remaining
     this.timeRemaining -= dt;
 
@@ -469,7 +477,7 @@ class GameRoom {
         this.lastShrinkTime = now;
 
         // Check if players are caught in the shrink zone
-        for (const player of this.gamePlayers.values()) {
+        for (const player of players) {
           if (!player.connected || player.hearts <= 0) continue;
 
           const halfSize = CONSTANTS.PLAYER_SIZE / 2;
@@ -698,10 +706,16 @@ class GameRoom {
       }
     }
 
-    // Handle flashlight toggle (inside inputData.input)
+    // Handle flashlight toggle (inside inputData.input) with debounce
     if (inputData.input?.flashlight) {
-      player.flashlightOn = !player.flashlightOn;
-      console.log(`[GameRoom ${this.code}] Player ${playerId.substring(0, 8)} flashlight toggled to: ${player.flashlightOn}`);
+      const now = Date.now();
+      const FLASHLIGHT_TOGGLE_COOLDOWN = 100; // ms debounce
+
+      if (now - player.lastFlashlightToggle >= FLASHLIGHT_TOGGLE_COOLDOWN) {
+        player.flashlightOn = !player.flashlightOn;
+        player.lastFlashlightToggle = now;
+        console.log(`[GameRoom ${this.code}] Player ${playerId.substring(0, 8)} flashlight toggled to: ${player.flashlightOn}`);
+      }
     }
 
     // Handle throw action (inside inputData.input)
@@ -820,6 +834,8 @@ class GameRoom {
     if (player) {
       player.connected = false;
     }
+    // Clean up input rate tracking to prevent memory leak
+    this.inputRateTracking.delete(playerId);
   }
 
   /**
