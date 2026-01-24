@@ -10,6 +10,7 @@ export class Input {
     this.mouseY = 0;
     this.facing = 0;
     this.flashlightToggle = false;
+    this.throwPending = false;  // Track throw action like flashlight
     this._loggedKeys = false;
 
     // Store handler references for cleanup
@@ -51,8 +52,9 @@ export class Input {
         console.log('[Input] Flashlight toggle');
       }
 
-      // Log throw key press
+      // Handle throw action (like flashlight, use pending flag so it's not missed)
       if (controls.isAction('throw', e.code) && !e.repeat) {
+        this.throwPending = true;
         console.log('[Input] Throw key pressed:', e.code);
       }
 
@@ -91,7 +93,14 @@ export class Input {
     };
 
     this._handlers.mousedown = (e) => {
-      if (e.button === 0) this.keys['Mouse0'] = true;  // Left click
+      if (e.button === 0) {
+        this.keys['Mouse0'] = true;  // Left click
+        // Check if left click is throw action
+        if (controls.isAction('throw', 'Mouse0')) {
+          this.throwPending = true;
+          console.log('[Input] Throw via left click');
+        }
+      }
       if (e.button === 1) this.keys['Mouse1'] = true;  // Middle click
       if (e.button === 2) {
         this.keys['Mouse2'] = true;  // Right click
@@ -151,14 +160,15 @@ export class Input {
       left: isPressed('left'),
       right: isPressed('right'),
       sprint: isPressed('sprint'),
-      throw: isPressed('throw'),
+      throw: this.throwPending,  // Use pending flag like flashlight
       flashlight: this.flashlightToggle,
       facing: this.facing,
     };
 
-    // Only reset toggle flags when actually consuming (sending to server)
+    // Only reset toggle/pending flags when actually consuming (sending to server)
     if (consumeToggles) {
       this.flashlightToggle = false;
+      this.throwPending = false;
     }
 
     return input;
@@ -168,5 +178,6 @@ export class Input {
   reset() {
     this.keys = {};
     this.flashlightToggle = false;
+    this.throwPending = false;
   }
 }
