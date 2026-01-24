@@ -10,6 +10,7 @@ export class Renderer {
     this.projectilePool = [];
     this.ripplePool = [];
     this.rippleIndex = 0;
+    this.pendingTimeouts = []; // Track timeouts for cleanup
 
     console.log('[Renderer] Arena element:', this.arena ? 'found' : 'NOT FOUND');
 
@@ -60,6 +61,15 @@ export class Renderer {
     // Track which players are in current state
     const currentPlayerIds = new Set();
 
+    // Build Map from prevState for O(1) lookups (instead of Array.find O(n))
+    let prevPlayerMap = null;
+    if (prevState && prevState.p) {
+      prevPlayerMap = new Map();
+      for (const p of prevState.p) {
+        prevPlayerMap.set(p[0], p);
+      }
+    }
+
     // Render players
     if (currState.p) {
       for (const pData of currState.p) {
@@ -73,11 +83,12 @@ export class Renderer {
         if (id === this.game.myId && localPlayer) {
           renderX = localPlayer.x;
           renderY = localPlayer.y;
-        } else if (prevState && prevState.p) {
-          const prev = prevState.p.find(p => p[0] === id);
+        } else if (prevPlayerMap) {
+          const prev = prevPlayerMap.get(id);
           if (prev) {
-            renderX = this.lerp(prev[1], x, t);
-            renderY = this.lerp(prev[2], y, t);
+            // Use wrap-aware interpolation to handle arena edge wrapping
+            renderX = this.lerpWrap(prev[1], x, t, CONFIG.ARENA_WIDTH);
+            renderY = this.lerpWrap(prev[2], y, t, CONFIG.ARENA_HEIGHT);
           }
         }
 
@@ -116,11 +127,11 @@ export class Renderer {
   }
 
   renderPlayer(id, x, y, facing, flashlightOn, invincible, playerData) {
-    let el = this.playerElements[id];
+    let cached = this.playerElements[id];
 
     // Create player element if it doesn't exist
-    if (!el) {
-      el = document.createElement('div');
+    if (!cached) {
+      const el = document.createElement('div');
       el.className = 'player';
       el.dataset.id = id;
       el.innerHTML = `
@@ -129,8 +140,18 @@ export class Renderer {
         <div class="flashlight-cone"></div>
       `;
       this.arena.appendChild(el);
-      this.playerElements[id] = el;
+
+      // Cache element and child references to avoid querySelector every frame
+      cached = {
+        root: el,
+        body: el.querySelector('.player-body'),
+        direction: el.querySelector('.player-direction'),
+        cone: el.querySelector('.flashlight-cone')
+      };
+      this.playerElements[id] = cached;
     }
+
+    const el = cached.root;
 
     // Position via transform3d (GPU accelerated)
     el.style.transform = `translate3d(${x - CONFIG.PLAYER_SIZE / 2}px, ${y - CONFIG.PLAYER_SIZE / 2}px, 0)`;
@@ -138,21 +159,19 @@ export class Renderer {
     // Z-index based on Y position for depth sorting
     el.style.zIndex = Math.floor(y);
 
-    // Rotation for direction indicator
-    const dirEl = el.querySelector('.player-direction');
-    if (dirEl) {
-      dirEl.style.transform = `rotate(${facing}rad)`;
+    // Rotation for direction indicator (use cached reference)
+    if (cached.direction) {
+      cached.direction.style.transform = `rotate(${facing}rad)`;
     }
 
-    // Flashlight cone and class
+    // Flashlight cone and class (use cached reference)
     el.classList.toggle('flashlight-on', !!flashlightOn);
-    const cone = el.querySelector('.flashlight-cone');
-    if (cone) {
+    if (cached.cone) {
       if (flashlightOn) {
-        cone.style.display = 'block';
-        cone.style.transform = `rotate(${facing}rad)`;
+        cached.cone.style.display = 'block';
+        cached.cone.style.transform = `rotate(${facing}rad)`;
       } else {
-        cone.style.display = 'none';
+        cached.cone.style.display = 'none';
       }
     }
 
@@ -167,13 +186,10 @@ export class Renderer {
       el.classList.toggle('stunned', !!playerData.stunned);
     }
 
-    // Set player color from lobby data
+    // Set player color from lobby data (use cached reference)
     const playerInfo = this.game.lobbyData?.players?.find(p => p.id === id);
-    if (playerInfo && playerInfo.color) {
-      const bodyEl = el.querySelector('.player-body');
-      if (bodyEl) {
-        bodyEl.style.backgroundColor = playerInfo.color;
-      }
+    if (playerInfo && playerInfo.color && cached.body) {
+      cached.body.style.backgroundColor = playerInfo.color;
     }
   }
 
@@ -186,6 +202,15 @@ export class Renderer {
     // Skip if no projectiles
     if (!currState.j) return;
 
+    // Build Map from prevState projectiles for O(1) lookups
+    let prevProjectileMap = null;
+    if (prevState && prevState.j) {
+      prevProjectileMap = new Map();
+      for (const p of prevState.j) {
+        prevProjectileMap.set(p[0], p);
+      }
+    }
+
     for (const pData of currState.j) {
       const [id, x, y, vx, vy] = pData;
 
@@ -193,8 +218,8 @@ export class Renderer {
       let renderY = y;
 
       // Interpolate projectile positions
-      if (prevState && prevState.j) {
-        const prev = prevState.j.find(p => p[0] === id);
+      if (prevProjectileMap) {
+        const prev = prevProjectileMap.get(id);
         if (prev) {
           renderX = this.lerp(prev[1], x, t);
           renderY = this.lerp(prev[2], y, t);
@@ -263,10 +288,16 @@ export class Renderer {
     el.style.top = `${y}px`;
     el.className = `sound-ripple active ${type}`;
 
-    // Remove active class after animation
-    setTimeout(() => {
+    // Remove active class after animation (track timeout for cleanup)
+    const timeoutId = setTimeout(() => {
       el.classList.remove('active');
+      // Remove from pending timeouts array
+      const idx = this.pendingTimeouts.indexOf(timeoutId);
+      if (idx > -1) {
+        this.pendingTimeouts.splice(idx, 1);
+      }
     }, 500);
+    this.pendingTimeouts.push(timeoutId);
   }
 
   triggerMuzzleFlash() {
@@ -295,10 +326,27 @@ export class Renderer {
     return a + (b - a) * t;
   }
 
+  // Wrap-aware lerp for positions that might wrap around arena edges
+  lerpWrap(a, b, t, max) {
+    const diff = b - a;
+    const halfMax = max / 2;
+
+    // If the difference is more than half the arena, they probably wrapped
+    if (diff > halfMax) {
+      // b wrapped from max to 0, so adjust a
+      return this.lerp(a + max, b, t) % max;
+    } else if (diff < -halfMax) {
+      // a wrapped from max to 0, so adjust b
+      return this.lerp(a, b + max, t) % max;
+    }
+
+    return this.lerp(a, b, t);
+  }
+
   cleanupPlayer(id) {
-    const el = this.playerElements[id];
-    if (el) {
-      el.remove();
+    const cached = this.playerElements[id];
+    if (cached) {
+      cached.root.remove();
       delete this.playerElements[id];
     }
   }
@@ -311,6 +359,12 @@ export class Renderer {
 
   // Clear all rendered elements (on game end)
   clear() {
+    // Clear all pending timeouts to prevent leaks
+    for (const timeoutId of this.pendingTimeouts) {
+      clearTimeout(timeoutId);
+    }
+    this.pendingTimeouts = [];
+
     // Clear all players
     for (const id of Object.keys(this.playerElements)) {
       this.cleanupPlayer(id);
