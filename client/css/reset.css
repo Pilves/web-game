@@ -114,9 +114,19 @@ textarea {
   resize: none;
 }
 
-/* Remove default focus outline - we'll add our own */
+/* Accessible focus styling */
 :focus {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
   outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 /* Remove default selection color */
