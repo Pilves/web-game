@@ -205,7 +205,7 @@ export class Renderer {
     if (currState.j.length > 0) {
       if (this._projLogCount === undefined) this._projLogCount = 0;
       if (this._projLogCount < 10) {
-        console.log('[Renderer] renderProjectiles:', currState.j);
+        console.log('[Renderer] renderProjectiles:', currState.j.map(p => ({id: p[0], x: p[1], y: p[2]})));
         this._projLogCount++;
       }
     }
@@ -265,7 +265,7 @@ export class Renderer {
 
     if (this._pickupLogCount === undefined) this._pickupLogCount = 0;
     if (this._pickupLogCount < 5) {
-      console.log('[Renderer] renderPickups called with:', pickups);
+      console.log('[Renderer] renderPickups:', pickups.map(p => ({id: p[0], x: p[1], y: p[2], active: p[3]})));
       this._pickupLogCount++;
     }
 
