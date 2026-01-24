@@ -9,35 +9,35 @@ const GEOMETRY = require('../shared/geometry.js');
 const { rectsCollide, pointInRect, normalizeAngle, hasLineOfSight } = GEOMETRY;
 
 // ============================================
-// Hitbox Helpers
+// Hitbox Helpers - Reusable rect objects to reduce GC pressure
 // ============================================
+
+// Reusable rect objects - populated by getPlayerRect/getProjectileRect
+const _playerRect = { x: 0, y: 0, width: CONSTANTS.PLAYER_SIZE, height: CONSTANTS.PLAYER_SIZE };
+const _projectileRect = { x: 0, y: 0, width: CONSTANTS.PROJECTILE_SIZE, height: CONSTANTS.PROJECTILE_SIZE };
 
 /**
  * Get the bounding rectangle for a player (centered on position)
+ * WARNING: Returns a reusable object - do not store reference, copy if needed
  * @param {Object} player - Player object with x, y properties
  * @returns {Object} Rectangle {x, y, width, height}
  */
 function getPlayerRect(player) {
-  return {
-    x: player.x - CONSTANTS.PLAYER_SIZE / 2,
-    y: player.y - CONSTANTS.PLAYER_SIZE / 2,
-    width: CONSTANTS.PLAYER_SIZE,
-    height: CONSTANTS.PLAYER_SIZE,
-  };
+  _playerRect.x = player.x - CONSTANTS.PLAYER_SIZE / 2;
+  _playerRect.y = player.y - CONSTANTS.PLAYER_SIZE / 2;
+  return _playerRect;
 }
 
 /**
  * Get the bounding rectangle for a projectile (centered on position)
+ * WARNING: Returns a reusable object - do not store reference, copy if needed
  * @param {Object} projectile - Projectile object with x, y properties
  * @returns {Object} Rectangle {x, y, width, height}
  */
 function getProjectileRect(projectile) {
-  return {
-    x: projectile.x - CONSTANTS.PROJECTILE_SIZE / 2,
-    y: projectile.y - CONSTANTS.PROJECTILE_SIZE / 2,
-    width: CONSTANTS.PROJECTILE_SIZE,
-    height: CONSTANTS.PROJECTILE_SIZE,
-  };
+  _projectileRect.x = projectile.x - CONSTANTS.PROJECTILE_SIZE / 2;
+  _projectileRect.y = projectile.y - CONSTANTS.PROJECTILE_SIZE / 2;
+  return _projectileRect;
 }
 
 // ============================================
