@@ -62,8 +62,9 @@ class GameRoom {
     this.broadcastInterval = null;
     this.countdownInterval = null;
 
-    // Projectile ID counter
+    // Projectile ID counter (with overflow protection)
     this.nextProjectileId = 1;
+    this.MAX_PROJECTILE_ID = Number.MAX_SAFE_INTEGER;
 
     // Pickup ID counter
     this.nextPickupId = 1;
@@ -82,6 +83,17 @@ class GameRoom {
 
     // Rate limiting: Track input counts per player using time window counter
     this.inputRateTracking = new Map(); // playerId -> { count: number, windowStart: timestamp, lastWarning: timestamp }
+  }
+
+  /**
+   * Sync the gamePlayersObject cache with the gamePlayers Map
+   * Call this after any modification to gamePlayers
+   */
+  syncGamePlayersObject() {
+    this.gamePlayersObject = {};
+    for (const [id, player] of this.gamePlayers) {
+      this.gamePlayersObject[id] = player;
+    }
   }
 
   /**
@@ -104,13 +116,15 @@ class GameRoom {
     // Check if we need to reset the window
     if (now - tracking.windowStart >= windowMs) {
       // Start a new window
-      tracking.count = 1;
       tracking.windowStart = now;
-      return true;
+      tracking.count = 0;  // Reset to 0, not 1
     }
 
+    // Increment counter
+    tracking.count++;
+
     // Check if over limit
-    if (tracking.count >= maxPackets) {
+    if (tracking.count > maxPackets) {
       // Log warning at most once per second
       if (now - tracking.lastWarning > 1000) {
         console.log(`[GameRoom ${this.code}] Rate limiting player ${playerId.substring(0, 8)}: ${tracking.count} packets/sec`);
@@ -119,8 +133,6 @@ class GameRoom {
       return false;
     }
 
-    // Increment counter
-    tracking.count++;
     return true;
   }
 
@@ -226,8 +238,10 @@ class GameRoom {
       };
 
       this.gamePlayers.set(player.id, gamePlayer);
-      this.gamePlayersObject[player.id] = gamePlayer;
     });
+
+    // Sync the cached object representation
+    this.syncGamePlayersObject();
 
     // Initialize pickups at random positions (avoiding obstacles)
     this.pickups = [];
@@ -272,10 +286,7 @@ class GameRoom {
 
       // Verify player count is still valid during countdown
       if (this.players.size < CONSTANTS.MIN_PLAYERS) {
-        clearInterval(this.countdownInterval);
-        this.countdownInterval = null;
-        this.state = 'lobby';
-        this.io.to(this.code).emit('countdown-cancelled', { reason: 'Not enough players' });
+        this.cancelCountdown('Not enough players');
         return;
       }
 
@@ -293,6 +304,29 @@ class GameRoom {
   }
 
   /**
+   * Cancel countdown and reset to lobby state (used for state sync)
+   * @param {string} reason - Reason for cancellation
+   */
+  cancelCountdown(reason) {
+    if (this.countdownInterval) {
+      clearInterval(this.countdownInterval);
+      this.countdownInterval = null;
+    }
+    this.state = 'lobby';
+    // Clear any partially initialized game state
+    this.gamePlayers.clear();
+    this.gamePlayersObject = {};
+    this.projectiles = [];
+    this.pickups = [];
+    this.events = [];
+    // Reset debug sets to avoid stale state on next game start
+    this._inputWarned = new Set();
+    this._inputReceived = new Set();
+    this._broadcastCount = 0;
+    this.io.to(this.code).emit('countdown-cancelled', { reason });
+  }
+
+  /**
    * Start the game (called after countdown)
    */
   startGame() {
@@ -306,7 +340,7 @@ class GameRoom {
     this.state = 'playing';
 
     const gameStartData = {
-      players: this.buildPlayersArray(),
+      players: this.buildPlayersArray(Date.now()),
       pickups: this.buildPickupsArray(),
       obstacles: CONSTANTS.OBSTACLES,
       settings: this.settings,
@@ -325,17 +359,24 @@ class GameRoom {
    * Start physics and broadcast intervals
    */
   startGameLoop() {
+    // Clear any existing intervals first
+    this.cleanup();
+
+    // Flag to prevent tick during endGame cleanup
+    this.gameLoopActive = true;
+
     const PHYSICS_DT = 1000 / CONSTANTS.PHYSICS_TICK_RATE;
     const BROADCAST_DT = 1000 / CONSTANTS.BROADCAST_RATE;
 
     // Physics loop - 60Hz
     this.physicsInterval = setInterval(() => {
-      if (this.state !== 'playing') return;
+      if (this.state !== 'playing' || !this.gameLoopActive) return;
       this.physicsTick(PHYSICS_DT / 1000); // pass delta in seconds
     }, PHYSICS_DT);
 
     // Broadcast loop - 20Hz
     this.broadcastInterval = setInterval(() => {
+      if (!this.gameLoopActive) return;
       if (this.state !== 'playing' && this.state !== 'paused') return;
       this.broadcastState();
     }, BROADCAST_DT);
@@ -372,11 +413,20 @@ class GameRoom {
       this.arenaInset
     );
 
-    this.projectiles = projectileResult.updatedProjectiles;
+    // Create new array instead of reassigning to avoid reference issues
+    this.projectiles = projectileResult.updatedProjectiles.slice();
 
     // Add projectile events to events array
     for (const event of projectileResult.events) {
-      this.events.push([event.type, event.victimId || null, event.attackerId || null]);
+      // Handle different event types with proper data
+      if (event.type === 'hit' || event.type === 'death') {
+        this.events.push([event.type, event.victimId || null, event.attackerId || null]);
+      } else if (event.type === 'wall-hit' || event.type === 'obstacle-hit') {
+        this.events.push([event.type, event.projectileId || null, event.x || 0, event.y || 0]);
+      } else {
+        // Fallback for other event types
+        this.events.push([event.type, event.victimId || null, event.attackerId || null]);
+      }
     }
 
     // 4. Check pickup collisions
@@ -406,7 +456,7 @@ class GameRoom {
    */
   checkPickupCollisions(players) {
     for (const player of players) {
-      if (!player.connected || player.hearts <= 0 || player.hasAmmo) continue;
+      if (!player.connected || player.hearts <= 0 || !player.hasAmmo) continue;
 
       const playerRect = Physics.getPlayerRect(player);
 
@@ -422,13 +472,15 @@ class GameRoom {
 
         if (Physics.rectsCollide(playerRect, pickupRect)) {
           console.log(`[GameRoom ${this.code}] Player ${player.name} picked up pillow ${pickup.id} at (${pickup.x}, ${pickup.y})`);
+
+          // Push event BEFORE updating pickup.active to avoid race condition
+          // Include pickup position in event for client sync
+          this.events.push(['pickup', player.id, pickup.id, pickup.x, pickup.y]);
+
           // Player picks up the pillow
           player.hasAmmo = true;
           pickup.active = false;
           pickup.respawnAt = Date.now() + CONSTANTS.PILLOW_RESPAWN_TIME;
-
-          // Add pickup event
-          this.events.push(['pickup', player.id, pickup.id]);
         }
       }
     }
@@ -452,8 +504,9 @@ class GameRoom {
         if (now - player.lastFootstepTime >= FOOTSTEP_INTERVAL) {
           player.lastFootstepTime = now;
 
-          // Add footstep sound event
-          this.events.push(['sound', 'footstep', player.id, player.x, player.y]);
+          // Add footstep sound event (format: ['sound', soundType, x, y])
+          // Client expects this format without playerId
+          this.events.push(['sound', 'footstep', player.x, player.y]);
         }
       }
     }
@@ -513,8 +566,9 @@ class GameRoom {
         pickup.active = true;
         pickup.respawnAt = 0;
 
-        // Add respawn event
-        this.events.push(['respawn', pickup.id, pickup.x, pickup.y]);
+        // Note: pickup-respawn events are broadcast via the pickups array in state packets.
+        // This event is intentionally not processed by client event handlers but could be
+        // used for future features like respawn animations or sounds.
       }
     }
   }
@@ -530,7 +584,10 @@ class GameRoom {
     // Solo mode: only end when player dies or time runs out
     if (totalPlayers === 1) {
       if (alivePlayers.length === 0) {
-        this.endGame(null); // Player died
+        this.endGame(null);  // Player died
+      } else if (this.timeRemaining <= 0 && this.suddenDeath && this.arenaInset >= Math.min(CONSTANTS.ARENA_WIDTH, CONSTANTS.ARENA_HEIGHT) * 0.3) {
+        // Solo player survived sudden death long enough (30% arena shrink) - they win!
+        this.endGame(alivePlayers[0]);
       }
       return;
     }
@@ -574,7 +631,8 @@ class GameRoom {
 
     this.io.to(this.code).emit('state', packet);
 
-    // Clear events after broadcast
+    // Clear events after broadcast (create new array to avoid reference issues
+    // if previous array is still being processed)
     this.events = [];
   }
 
@@ -585,17 +643,20 @@ class GameRoom {
   buildStatePacket() {
     const now = Date.now();
 
+    // Create copy of events to avoid reference issues when array is cleared after broadcast
+    const eventsCopy = this.events.slice();
+
     return {
       seq: this.stateSequence++,
       t: now,
       s: this.state,
       mf: this.muzzleFlashActive,
-      time: Math.max(0, Math.ceil(this.timeRemaining)),
+      time: Math.max(0, Math.floor(this.timeRemaining)),
       inset: this.arenaInset,
       p: this.buildPlayersArray(now),
       j: this.buildProjectilesArray(),
       k: this.buildPickupsArray(),
-      e: this.events,
+      e: eventsCopy,
     };
   }
 
@@ -691,8 +752,8 @@ class GameRoom {
       this._inputReceived.add(playerId);
     }
 
-    // Update movement input
-    if (inputData.input !== undefined && typeof inputData.input === 'object') {
+    // Update movement input (with null check for input object)
+    if (inputData.input !== undefined && inputData.input !== null && typeof inputData.input === 'object') {
       const input = inputData.input;
       player.input.up = input.up === true;
       player.input.down = input.down === true;
@@ -732,6 +793,13 @@ class GameRoom {
    * @param {Object} player - Player object
    */
   handleThrow(player) {
+    // Limit projectiles per room to prevent DOS
+    const MAX_PROJECTILES = 50;
+    if (this.projectiles.length >= MAX_PROJECTILES) {
+      console.log(`[GameRoom ${this.code}] Projectile limit reached, ignoring throw`);
+      return;
+    }
+
     const now = Date.now();
 
     // Check if player can throw
@@ -744,8 +812,9 @@ class GameRoom {
       return;
     }
 
-    // Create projectile
-    const projectileId = `proj_${this.nextProjectileId++}`;
+    // Create projectile (with overflow protection)
+    const projectileId = `proj_${this.nextProjectileId}`;
+    this.nextProjectileId = (this.nextProjectileId % this.MAX_PROJECTILE_ID) + 1;
     const projectile = Combat.createProjectile(player, projectileId);
     console.log(`[GameRoom ${this.code}] Player ${player.name} threw projectile:`, projectile);
 
@@ -808,6 +877,10 @@ class GameRoom {
    * @param {Object} winner - Winner player object (or null for draw)
    */
   endGame(winner = null) {
+    if (this.state === 'gameover') return;  // Prevent duplicate calls
+
+    // Set flag FIRST to prevent physics tick race condition
+    this.gameLoopActive = false;
     this.state = 'gameover';
 
     // Stop game loops
@@ -845,6 +918,11 @@ class GameRoom {
     }
     // Clean up input rate tracking to prevent memory leak
     this.inputRateTracking.delete(playerId);
+
+    // Check if game should end due to disconnect
+    if (this.state === 'playing') {
+      this.checkWinCondition();
+    }
   }
 
   /**
@@ -873,7 +951,7 @@ class GameRoom {
   resetToLobby() {
     this.state = 'lobby';
     this.gamePlayers.clear();
-    this.gamePlayersObject = {};
+    this.syncGamePlayersObject();
     this.projectiles = [];
     this.pickups = [];
     this.events = [];
@@ -883,6 +961,18 @@ class GameRoom {
     this.muzzleFlashActive = false;
     this.pausedBy = null;
     this.returnToLobbyRequests.clear();
+
+    // Reset state sequence to 0 for network sync
+    this.stateSequence = 0;
+
+    // Reset game loop flag
+    this.gameLoopActive = false;
+
+    // Clear rate tracking and debug sets
+    this.inputRateTracking.clear();
+    this._inputWarned = new Set();
+    this._inputReceived = new Set();
+    this._broadcastCount = 0;
   }
 
   /**

@@ -9,7 +9,7 @@ const io = new Server(server, {
   cors: {
     // SECURITY: In production, restrict this to your specific domain(s)
     // e.g., origin: 'https://yourgame.com' or ['https://yourgame.com', 'https://www.yourgame.com']
-    origin: process.env.CORS_ORIGIN || '*'
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   },
 });
 
@@ -26,6 +26,8 @@ const gameManager = new GameManager(io);
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
 
+  // Note: 'join-error' is used for room creation/joining errors (handled by lobby UI)
+  // 'error' is used for all other game-related errors
   socket.on('create-room', (data) => {
     try {
       gameManager.createRoom(socket, data);
@@ -47,24 +49,27 @@ io.on('connection', (socket) => {
   socket.on('toggle-ready', () => {
     try {
       gameManager.toggleReady(socket);
-    } catch (e) {
-      console.error('Error in toggle-ready:', e);
+    } catch (err) {
+      console.error('[Server] Error in toggle-ready:', err);
+      socket.emit('error', { message: 'Failed to toggle ready status' });
     }
   });
 
   socket.on('kick-player', (data) => {
     try {
       gameManager.kickPlayer(socket, data);
-    } catch (e) {
-      console.error('Error in kick-player:', e);
+    } catch (err) {
+      console.error('[Server] Error in kick-player:', err);
+      socket.emit('error', { message: 'Failed to kick player' });
     }
   });
 
   socket.on('update-settings', (data) => {
     try {
       gameManager.updateSettings(socket, data);
-    } catch (e) {
-      console.error('Error in update-settings:', e);
+    } catch (err) {
+      console.error('[Server] Error in update-settings:', err);
+      socket.emit('error', { message: 'Failed to update settings' });
     }
   });
 
@@ -73,7 +78,8 @@ io.on('connection', (socket) => {
       gameManager.startGame(socket);
     } catch (e) {
       console.error('Error in start-game:', e);
-      socket.emit('join-error', { message: 'Server error' });
+      // Use 'error' for game-related errors (not join-related)
+      socket.emit('error', { message: 'Failed to start game' });
     }
   });
 
@@ -81,39 +87,44 @@ io.on('connection', (socket) => {
     try {
       gameManager.handleInput(socket, data);
     } catch (e) {
-      console.error('Error in input:', e);
+      console.error('[Server] Error in input:', e);
+      socket.emit('error', { message: 'Input processing failed' });
     }
   });
 
   socket.on('pause', () => {
     try {
       gameManager.pauseGame(socket);
-    } catch (e) {
-      console.error('Error in pause:', e);
+    } catch (err) {
+      console.error('[Server] Error in pause:', err);
+      socket.emit('error', { message: 'Failed to pause game' });
     }
   });
 
   socket.on('resume', () => {
     try {
       gameManager.resumeGame(socket);
-    } catch (e) {
-      console.error('Error in resume:', e);
+    } catch (err) {
+      console.error('[Server] Error in resume:', err);
+      socket.emit('error', { message: 'Failed to resume game' });
     }
   });
 
   socket.on('quit', () => {
     try {
       gameManager.quitGame(socket);
-    } catch (e) {
-      console.error('Error in quit:', e);
+    } catch (err) {
+      console.error('[Server] Error in quit:', err);
+      socket.emit('error', { message: 'Failed to quit game' });
     }
   });
 
   socket.on('return-lobby', () => {
     try {
       gameManager.returnToLobby(socket);
-    } catch (e) {
-      console.error('Error in return-lobby:', e);
+    } catch (err) {
+      console.error('[Server] Error in return-lobby:', err);
+      socket.emit('error', { message: 'Failed to return to lobby' });
     }
   });
 

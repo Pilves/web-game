@@ -82,9 +82,10 @@ function applyInput(player, input, dt) {
     player.vx = dx * speed;
     player.vy = dy * speed;
   } else {
-    // No input - apply friction
-    player.vx *= CONSTANTS.PLAYER_FRICTION;
-    player.vy *= CONSTANTS.PLAYER_FRICTION;
+    // No input - apply friction (framerate independent)
+    const frictionFactor = Math.pow(CONSTANTS.PLAYER_FRICTION, dt * 60);
+    player.vx *= frictionFactor;
+    player.vy *= frictionFactor;
 
     // Stop completely if velocity is very small
     if (Math.abs(player.vx) < 0.1) player.vx = 0;
@@ -121,21 +122,20 @@ function movePlayer(player, dt, obstacles, arenaInset = 0) {
   player.y = newY;
 
   // Check wall boundaries - wrap around like Snake (except during sudden death)
-  if (arenaInset === 0) {
+  if (arenaInset <= 0) {
     // Wrap around mode
     const arenaWidth = CONSTANTS.ARENA_WIDTH;
     const arenaHeight = CONSTANTS.ARENA_HEIGHT;
 
     if (player.x < -halfSize) {
-      player.x = arenaWidth + halfSize + (player.x + halfSize);
+      player.x += arenaWidth;
     } else if (player.x > arenaWidth + halfSize) {
-      player.x = -halfSize + (player.x - arenaWidth - halfSize);
+      player.x -= arenaWidth;
     }
-
     if (player.y < -halfSize) {
-      player.y = arenaHeight + halfSize + (player.y + halfSize);
+      player.y += arenaHeight;
     } else if (player.y > arenaHeight + halfSize) {
-      player.y = -halfSize + (player.y - arenaHeight - halfSize);
+      player.y -= arenaHeight;
     }
   } else {
     // During sudden death, clamp to shrinking arena
@@ -158,9 +158,8 @@ function movePlayer(player, dt, obstacles, arenaInset = 0) {
   }
 
   // Check obstacle collisions
-  const playerRect = getPlayerRect(player);
-
   for (const obstacle of obstacles) {
+    const playerRect = getPlayerRect(player);  // Move inside loop
     if (rectsCollide(playerRect, obstacle)) {
       // Resolve collision by pushing player out
       resolveCollision(player, obstacle, oldX, oldY);
@@ -181,29 +180,37 @@ function resolveCollision(player, obstacle, oldX, oldY) {
   const playerRect = getPlayerRect(player);
 
   // Calculate overlap on each axis
+  // overlapLeft: how far the player's RIGHT edge penetrates past the obstacle's LEFT edge
+  // overlapRight: how far the player's LEFT edge penetrates past the obstacle's RIGHT edge
+  // overlapTop: how far the player's BOTTOM edge penetrates past the obstacle's TOP edge
+  // overlapBottom: how far the player's TOP edge penetrates past the obstacle's BOTTOM edge
   const overlapLeft = (playerRect.x + playerRect.width) - obstacle.x;
   const overlapRight = (obstacle.x + obstacle.width) - playerRect.x;
   const overlapTop = (playerRect.y + playerRect.height) - obstacle.y;
   const overlapBottom = (obstacle.y + obstacle.height) - playerRect.y;
 
-  // Find minimum overlap
+  // Find minimum overlap on each axis to determine shortest escape direction
   const minOverlapX = Math.min(overlapLeft, overlapRight);
   const minOverlapY = Math.min(overlapTop, overlapBottom);
 
-  // Push out along axis of least penetration
+  // Push out along axis of least penetration (shortest distance to escape collision)
   if (minOverlapX < minOverlapY) {
-    // Push horizontally
+    // Push horizontally - less penetration on X axis
     if (overlapLeft < overlapRight) {
+      // Player came from the left, push back to obstacle's left edge
       player.x = obstacle.x - halfSize;
     } else {
+      // Player came from the right, push back to obstacle's right edge
       player.x = obstacle.x + obstacle.width + halfSize;
     }
     player.vx = 0;
   } else {
-    // Push vertically
+    // Push vertically - less penetration on Y axis
     if (overlapTop < overlapBottom) {
+      // Player came from above, push back to obstacle's top edge
       player.y = obstacle.y - halfSize;
     } else {
+      // Player came from below, push back to obstacle's bottom edge
       player.y = obstacle.y + obstacle.height + halfSize;
     }
     player.vy = 0;
@@ -223,6 +230,15 @@ function resolveCollision(player, obstacle, oldX, oldY) {
  * @returns {boolean} True if target is visible to viewer
  */
 function isPlayerVisible(viewer, target, obstacles, muzzleFlashActive) {
+  // Validate viewer and target exist with required properties
+  if (!viewer || typeof viewer.x !== 'number' || typeof viewer.y !== 'number' ||
+      typeof viewer.facing !== 'number') {
+    return false;
+  }
+  if (!target || typeof target.x !== 'number' || typeof target.y !== 'number') {
+    return false;
+  }
+
   // During muzzle flash, everyone is visible
   if (muzzleFlashActive) {
     return true;

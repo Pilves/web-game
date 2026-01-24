@@ -9,16 +9,28 @@ export class Audio {
     this.masterVolume = 0.7;
     this.loaded = false;
     this.soundGenerator = null;
+    this.initializing = false;
   }
 
   // Initialize audio context (must be called after user interaction)
   async init() {
     if (this.ctx) return;
+    if (this.initializing) return;
+    this.initializing = true;
 
-    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    this.soundGenerator = createSoundGenerator(this.ctx);
-    await this.loadSounds();
-    this.loaded = true;
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) {
+        console.error('[Audio] AudioContext not supported');
+        return;
+      }
+      this.ctx = new AudioContextClass();
+      this.soundGenerator = createSoundGenerator(this.ctx);
+      await this.loadSounds();
+      this.loaded = true;
+    } finally {
+      this.initializing = false;
+    }
   }
 
   async loadSounds() {
@@ -93,51 +105,108 @@ export class Audio {
   }
 
   // Resume audio context (required after user interaction)
-  resume() {
+  async resume() {
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      try {
+        await this.ctx.resume();
+      } catch (err) {
+        console.warn('[Audio] Failed to resume context:', err);
+      }
     }
   }
 
   // Play a non-positional sound (UI, self actions)
   play(name, volume = 1) {
-    if (!this.enabled || !this.ctx || !this.sounds[name]) return;
+    if (!this.enabled || !this.ctx || this.ctx.state !== 'running' || !this.sounds[name]) return;
 
-    const source = this.ctx.createBufferSource();
-    const gain = this.ctx.createGain();
+    try {
+      const source = this.ctx.createBufferSource();
+      source.buffer = this.sounds[name];
 
-    source.buffer = this.sounds[name];
-    gain.gain.value = volume * this.masterVolume;
+      const gainNode = this.ctx.createGain();
+      gainNode.gain.value = volume * this.masterVolume;
 
-    source.connect(gain).connect(this.ctx.destination);
-    source.start();
+      source.connect(gainNode);
+      gainNode.connect(this.ctx.destination);
+
+      source.start();
+
+      // Cleanup function for audio nodes
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        try {
+          source.disconnect();
+          gainNode.disconnect();
+        } catch (e) {
+          // Nodes may already be disconnected
+        }
+      };
+
+      // Primary cleanup: when audio ends normally
+      source.onended = cleanup;
+
+      // Fallback cleanup: timeout based on buffer duration + buffer time
+      // This handles cases where onended doesn't fire (interrupted audio, browser issues)
+      const duration = source.buffer ? source.buffer.duration * 1000 : 5000;
+      setTimeout(cleanup, duration + 100);
+    } catch (err) {
+      console.warn('[Audio] Failed to play sound:', name, err);
+    }
   }
 
   // Play a positional sound (other players' actions)
   playPositional(name, sourceX, sourceY, listenerX, listenerY, volume = 1) {
-    if (!this.enabled || !this.ctx || !this.sounds[name]) return;
+    if (!this.enabled || !this.ctx || this.ctx.state !== 'running' || !this.sounds[name]) return;
 
-    const source = this.ctx.createBufferSource();
-    const panner = this.ctx.createStereoPanner();
-    const gain = this.ctx.createGain();
+    try {
+      const source = this.ctx.createBufferSource();
+      const panner = this.ctx.createStereoPanner();
+      const gainNode = this.ctx.createGain();
 
-    source.buffer = this.sounds[name];
+      source.buffer = this.sounds[name];
 
-    // Calculate stereo pan (-1 left, +1 right)
-    const dx = sourceX - listenerX;
-    const maxDistance = 600; // Half arena width
-    const pan = Math.max(-1, Math.min(1, dx / maxDistance));
-    panner.pan.value = pan;
+      // Calculate stereo pan (-1 left, +1 right)
+      const dx = sourceX - listenerX;
+      const maxDistance = 600; // Half arena width
+      const pan = Math.max(-1, Math.min(1, dx / maxDistance));
+      panner.pan.value = pan;
 
-    // Distance-based volume falloff
-    const dy = sourceY - listenerY;
-    const distance = Math.hypot(dx, dy);
-    const maxAudioDistance = 800; // Full arena diagonal roughly
-    const distanceVolume = Math.max(0, 1 - (distance / maxAudioDistance));
-    gain.gain.value = volume * distanceVolume * this.masterVolume;
+      // Distance-based volume falloff
+      const dy = sourceY - listenerY;
+      const distance = Math.hypot(dx, dy);
+      const maxAudioDistance = 800; // Full arena diagonal roughly
+      const distanceVolume = Math.max(0, 1 - (distance / maxAudioDistance));
+      gainNode.gain.value = volume * distanceVolume * this.masterVolume;
 
-    source.connect(panner).connect(gain).connect(this.ctx.destination);
-    source.start();
+      source.connect(panner).connect(gainNode).connect(this.ctx.destination);
+      source.start();
+
+      // Cleanup function for audio nodes
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        try {
+          source.disconnect();
+          panner.disconnect();
+          gainNode.disconnect();
+        } catch (e) {
+          // Nodes may already be disconnected
+        }
+      };
+
+      // Primary cleanup: when audio ends normally
+      source.onended = cleanup;
+
+      // Fallback cleanup: timeout based on buffer duration + buffer time
+      // This handles cases where onended doesn't fire (interrupted audio, browser issues)
+      const duration = source.buffer ? source.buffer.duration * 1000 : 5000;
+      setTimeout(cleanup, duration + 100);
+    } catch (err) {
+      console.warn('[Audio] Failed to play positional sound:', name, err);
+    }
   }
 
   // Set master volume (0-1)

@@ -2,10 +2,20 @@
 import { CONFIG } from './config.js';
 
 // Use shared geometry functions (loaded via script tag before modules)
+// These functions are critical for visibility calculations - fail fast if not available
 if (typeof window.GEOMETRY === 'undefined') {
-  console.error('[Vision] window.GEOMETRY is undefined. Ensure geometry.js is loaded before this module.');
+  throw new Error('[Vision] window.GEOMETRY is undefined. Ensure geometry.js is loaded before this module.');
 }
-const { pointInRect, normalizeAngle, hasLineOfSight } = window.GEOMETRY || {};
+
+const { pointInRect, normalizeAngle, hasLineOfSight } = window.GEOMETRY;
+
+// Validate that required functions are available
+if (typeof normalizeAngle !== 'function') {
+  throw new Error('[Vision] window.GEOMETRY.normalizeAngle is not a function');
+}
+if (typeof hasLineOfSight !== 'function') {
+  throw new Error('[Vision] window.GEOMETRY.hasLineOfSight is not a function');
+}
 
 export class Vision {
   constructor(game) {
@@ -13,6 +23,25 @@ export class Vision {
     // Cache DOM element references to avoid querySelector every frame
     this.playerElementCache = new Map();
     this.pickupElementCache = new Map();
+  }
+
+  /**
+   * Calculate wrap-aware delta for a single axis with sign preservation.
+   * Returns the shortest signed distance considering arena wrapping.
+   * @param {number} from - Starting coordinate
+   * @param {number} to - Target coordinate
+   * @param {number} arenaSize - Size of the arena on this axis
+   * @returns {number} Signed delta (shortest path considering wrap-around)
+   */
+  getWrappedDelta(from, to, arenaSize) {
+    let delta = to - from;
+    const halfArena = arenaSize / 2;
+    if (delta > halfArena) {
+      delta -= arenaSize;
+    } else if (delta < -halfArena) {
+      delta += arenaSize;
+    }
+    return delta;
   }
 
   // Clear caches when game state changes (new game, etc.)
@@ -32,7 +61,7 @@ export class Vision {
     if (!el) {
       el = document.querySelector(`.player[data-id="${id}"]`);
       if (el) {
-        this.playerElementCache.set(id, el);
+        this.playerElementCache.set(id, el);  // Only cache valid elements
       }
     }
     return el;
@@ -49,7 +78,7 @@ export class Vision {
     if (!el) {
       el = document.getElementById(`pickup-${id}`);
       if (el) {
-        this.pickupElementCache.set(id, el);
+        this.pickupElementCache.set(id, el);  // Only cache valid elements
       }
     }
     return el;
@@ -111,12 +140,15 @@ export class Vision {
       for (const pickup of state.k) {
         const [id, x, y, active] = pickup;
 
-        // Skip inactive pickups
-        if (!active) continue;
-
         // Get cached pickup element
         const pickupEl = this.getPickupElement(id);
         if (!pickupEl) continue;
+
+        // Inactive pickups should not be visible
+        if (!active) {
+          pickupEl.classList.remove('visible');
+          continue;
+        }
 
         // Check visibility (pickups don't have flashlights, simpler check)
         const visible = this.isPointVisible(viewer, x, y, muzzleFlash);
@@ -147,9 +179,9 @@ export class Vision {
       return false;
     }
 
-    // Calculate distance and angle to target
-    const dx = target.x - viewer.x;
-    const dy = target.y - viewer.y;
+    // Calculate wrap-aware delta with sign preservation (used for both distance and angle)
+    const dx = this.getWrappedDelta(viewer.x, target.x, CONFIG.ARENA_WIDTH);
+    const dy = this.getWrappedDelta(viewer.y, target.y, CONFIG.ARENA_HEIGHT);
     const distance = Math.hypot(dx, dy);
 
     // Check if target is within flashlight range
@@ -157,7 +189,7 @@ export class Vision {
       return false;
     }
 
-    // Check if target is within flashlight cone angle
+    // Calculate angle to target using the same wrapped deltas
     const angleToTarget = Math.atan2(dy, dx);
     const angleDiff = normalizeAngle(angleToTarget - viewer.facing);
     const halfConeRad = (CONFIG.FLASHLIGHT_ANGLE / 2) * (Math.PI / 180);
@@ -181,9 +213,9 @@ export class Vision {
       return false;
     }
 
-    // Calculate distance and angle to point
-    const dx = x - viewer.x;
-    const dy = y - viewer.y;
+    // Calculate wrap-aware delta with sign preservation (used for both distance and angle)
+    const dx = this.getWrappedDelta(viewer.x, x, CONFIG.ARENA_WIDTH);
+    const dy = this.getWrappedDelta(viewer.y, y, CONFIG.ARENA_HEIGHT);
     const distance = Math.hypot(dx, dy);
 
     // Check if point is within flashlight range
@@ -191,7 +223,7 @@ export class Vision {
       return false;
     }
 
-    // Check if point is within flashlight cone angle
+    // Calculate angle to point using the same wrapped deltas
     const angleToPoint = Math.atan2(dy, dx);
     const angleDiff = normalizeAngle(angleToPoint - viewer.facing);
     const halfConeRad = (CONFIG.FLASHLIGHT_ANGLE / 2) * (Math.PI / 180);

@@ -103,15 +103,20 @@ class Game {
     // Start game loop
     this.running = true;
     console.log('[Game] Starting game loop');
-    requestAnimationFrame(this._boundGameLoop);
+    this.animationFrameId = requestAnimationFrame(this._boundGameLoop);
   }
 
   // Main game loop
   gameLoop(timestamp) {
     if (!this.running) return;
 
+    // Initialize lastFrameTime on first frame to avoid uninitialized value
+    if (this.lastFrameTime === 0) {
+      this.lastFrameTime = timestamp;
+    }
+
     // Calculate delta time in seconds
-    const dt = this.lastFrameTime ? (timestamp - this.lastFrameTime) / 1000 : 0;
+    const dt = (timestamp - this.lastFrameTime) / 1000;
     this.lastFrameTime = timestamp;
 
     // Cap dt to prevent large jumps
@@ -125,13 +130,12 @@ class Game {
       // Update interpolation timer
       this.stateTime += cappedDt * 1000;
 
-      // Poll input - movement every frame, send throttled
-      const input = this.input.getState(false); // Don't consume toggles yet
+      // Poll input - consume toggles immediately in first call to avoid race condition
       const now = performance.now();
-      if (now - this.lastInputSendTime >= this.inputSendInterval) {
-        // Get input with toggle consumption for sending
-        const sendInput = this.input.getState(true); // Consume toggles
-        this.network.sendInput(sendInput);
+      const shouldSend = now - this.lastInputSendTime >= this.inputSendInterval;
+      const input = this.input.getState(shouldSend); // Consume toggles only when sending
+      if (shouldSend) {
+        this.network.sendInput(input);
         this.lastInputSendTime = now;
       }
 
@@ -161,7 +165,7 @@ class Game {
       console.log('[Game] Current state:', this.state, '| myId:', this.myId);
     }
 
-    requestAnimationFrame(this._boundGameLoop);
+    this.animationFrameId = requestAnimationFrame(this._boundGameLoop);
   }
 
   // Handle incoming server state
@@ -169,14 +173,30 @@ class Game {
     // Validate state object before accessing properties
     if (!state || typeof state !== 'object') return;
 
-    // Check sequence number to ignore out-of-order packets
-    if (state.seq !== undefined && state.seq <= this.lastServerSeq) {
-      // Out of order packet, ignore
+    // Validate packet has sequence number before processing
+    if (state.seq === undefined) {
+      console.warn('[Game] Received state packet without sequence number, ignoring');
       return;
     }
-    if (state.seq !== undefined) {
-      this.lastServerSeq = state.seq;
+
+    // Check sequence number to ignore out-of-order packets (with wraparound handling)
+    // MAX_SEQ is 2^32 - 1, so sequence numbers are 0 to MAX_SEQ inclusive
+    const MAX_SEQ = 0xFFFFFFFF;
+    const HALF_SEQ = 0x80000000; // Half of the sequence space (2^31)
+
+    if (this.lastServerSeq !== -1) {
+      // Calculate the forward distance from lastServerSeq to state.seq
+      // This handles wraparound: if state.seq wrapped around, the difference will be small and positive
+      // If state.seq is an old packet, the forward distance will be very large (> half the space)
+      const forwardDist = (state.seq - this.lastServerSeq + MAX_SEQ + 1) & MAX_SEQ;
+
+      // If forward distance is greater than half the sequence space, it's an old packet
+      if (forwardDist > HALF_SEQ) {
+        // Out of order packet, ignore
+        return;
+      }
     }
+    this.lastServerSeq = state.seq;
 
     // Debug: log first state and every 20th after
     if (!this._stateCount) this._stateCount = 0;
@@ -194,6 +214,14 @@ class Game {
       });
     }
 
+    // Process events BEFORE updating serverState to avoid stale state reference
+    // Events reference player positions from the incoming state
+    if (state.e && state.e.length > 0) {
+      for (const event of state.e) {
+        this.handleEvent(event, state);
+      }
+    }
+
     // Store previous state for interpolation
     this.prevServerState = this.serverState;
     this.serverState = state;
@@ -207,26 +235,19 @@ class Game {
     // Reconcile local player position with server
     this.reconcileLocalPlayer(state);
 
-    // Process events (hits, deaths, sounds)
-    if (state.e && state.e.length > 0) {
-      for (const event of state.e) {
-        this.handleEvent(event);
-      }
-    }
-
     // Update HUD
     this.ui.updateHUD(state);
   }
 
   // Handle game events from server
-  handleEvent(event) {
+  handleEvent(event, state) {
     const [type, ...data] = event;
 
     switch (type) {
       case 'hit': {
         // [victimId, attackerId]
         const victimId = data[0];
-        const victim = this.findPlayerInState(this.serverState, victimId);
+        const victim = this.findPlayerInState(state, victimId);
         if (victim) {
           this.effects.showImpactFlash(victim.x, victim.y);
           this.effects.triggerScreenShake();
@@ -236,6 +257,8 @@ class Game {
             this.audio.playPositional('hit-player', victim.x, victim.y,
               this.localPlayer.x, this.localPlayer.y);
           }
+        } else {
+          console.warn('[Game] handleEvent hit: Could not find victim in state, victimId:', victimId);
         }
         break;
       }
@@ -243,13 +266,15 @@ class Game {
       case 'death': {
         // [playerId]
         const playerId = data[0];
-        const player = this.findPlayerInState(this.serverState, playerId);
+        const player = this.findPlayerInState(state, playerId);
         if (player) {
           // Play death sound
           if (this.localPlayer) {
             this.audio.playPositional('death', player.x, player.y,
               this.localPlayer.x, this.localPlayer.y);
           }
+        } else {
+          console.warn('[Game] handleEvent death: Could not find player in state, playerId:', playerId);
         }
         break;
       }
@@ -257,7 +282,7 @@ class Game {
       case 'throw': {
         // [playerId]
         const playerId = data[0];
-        const player = this.findPlayerInState(this.serverState, playerId);
+        const player = this.findPlayerInState(state, playerId);
         if (player) {
           this.effects.triggerMuzzleFlash();
 
@@ -267,6 +292,8 @@ class Game {
             this.audio.playPositional('throw', player.x, player.y,
               this.localPlayer.x, this.localPlayer.y, 0.8);
           }
+        } else {
+          console.warn('[Game] handleEvent throw: Could not find player in state, playerId:', playerId);
         }
         break;
       }
@@ -277,13 +304,17 @@ class Game {
         const pickupId = data[1];
         if (playerId === this.myId) {
           this.audio.play('pickup');
-        } else if (this.localPlayer && this.serverState?.k) {
+        } else if (this.localPlayer && state?.k) {
           // Find the pickup position from state
-          const pickup = this.serverState.k.find(p => p[0] === pickupId);
+          const pickup = state.k.find(p => p[0] === pickupId);
           if (pickup) {
             this.audio.playPositional('pickup', pickup[1], pickup[2],
               this.localPlayer.x, this.localPlayer.y);
+          } else {
+            console.warn('[Game] handleEvent pickup: Could not find pickup in state, pickupId:', pickupId);
           }
+        } else if (this.localPlayer && !state?.k) {
+          console.warn('[Game] handleEvent pickup: State has no pickups array');
         }
         break;
       }
@@ -308,6 +339,11 @@ class Game {
         }
         break;
       }
+
+      default: {
+        console.warn('[Game] handleEvent: Unknown event type:', type, 'data:', data);
+        break;
+      }
     }
   }
 
@@ -315,8 +351,8 @@ class Game {
   findPlayerInState(state, playerId) {
     if (!state || !state.p) return null;
 
-    const playerData = state.p.find(p => p[0] === playerId);
-    if (!playerData) return null;
+    const playerData = state.p.find(p => p && p[0] === playerId);
+    if (!playerData || playerData.length < 9) return null;
 
     // Return object with named properties
     return {
@@ -424,17 +460,17 @@ class Game {
         this.localPlayer.vy = 0;
       }
     } else {
-      // Normal mode: wrap around arena bounds like Snake
+      // Normal mode: wrap around arena bounds like Snake (simplified to match server logic)
       if (this.localPlayer.x < -halfSize) {
-        this.localPlayer.x = arenaWidth + halfSize + (this.localPlayer.x + halfSize);
+        this.localPlayer.x += arenaWidth;
       } else if (this.localPlayer.x > arenaWidth + halfSize) {
-        this.localPlayer.x = -halfSize + (this.localPlayer.x - arenaWidth - halfSize);
+        this.localPlayer.x -= arenaWidth;
       }
 
       if (this.localPlayer.y < -halfSize) {
-        this.localPlayer.y = arenaHeight + halfSize + (this.localPlayer.y + halfSize);
+        this.localPlayer.y += arenaHeight;
       } else if (this.localPlayer.y > arenaHeight + halfSize) {
-        this.localPlayer.y = -halfSize + (this.localPlayer.y - arenaHeight - halfSize);
+        this.localPlayer.y -= arenaHeight;
       }
     }
 
@@ -509,6 +545,8 @@ class Game {
         y: serverPlayer.y,
         facing: serverPlayer.facing,
         stunned: serverPlayer.stunned,
+        vx: 0,
+        vy: 0,
       };
       console.log('[Game] Local player initialized:', this.localPlayer);
       return;
@@ -632,10 +670,14 @@ class Game {
       const stateData = data.p ? data : {
         ...data,
         p: data.players,
-        j: [],  // no projectiles at start
-        k: data.pickups,
-        e: [],  // no events at start
-        s: 'playing'
+        j: data.projectiles || [],
+        k: data.pickups || [],
+        e: data.events || [],
+        s: 'playing',
+        seq: 0,
+        time: data.timeRemaining || 180,
+        inset: 0,
+        mf: false
       };
       this.onServerState(stateData);
     } else {
@@ -733,11 +775,11 @@ class Game {
 
     // Update final scoreboard
     const finalScoreboard = document.getElementById('final-scoreboard');
-    if (finalScoreboard && data.scores) {
+    if (finalScoreboard && data.players) {
       finalScoreboard.innerHTML = '';
 
       // Sort by kills, then by deaths (ascending)
-      const sorted = [...data.scores].sort((a, b) => {
+      const sorted = [...data.players].sort((a, b) => {
         if (b.kills !== a.kills) return b.kills - a.kills;
         return a.deaths - b.deaths;
       });
@@ -746,7 +788,7 @@ class Game {
         const row = document.createElement('div');
         row.className = 'score-row';
         if (score.id === this.myId) row.classList.add('self');
-        if (score.id === data.winner) row.classList.add('winner');
+        if (score.id === data.winner?.id) row.classList.add('winner');
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'player-name';
@@ -772,6 +814,36 @@ class Game {
   }
 
   onDisconnect() {
+    // Stop the game loop
+    this.running = false;
+
+    // Clear any pending animation frame
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+
+    // Reset and cleanup input listeners
+    if (this.input) {
+      this.input.reset();  // Clear any pending inputs before destroy
+      this.input.destroy();
+    }
+
+    // Clear renderer
+    if (this.renderer) {
+      this.renderer.clear();
+    }
+
+    // Cleanup UI event listeners to prevent memory leaks, then rebind menu events
+    // so users can still create/join rooms after reconnection
+    if (this.ui) {
+      this.ui.cleanup();
+      // Rebind all UI events for fresh state after disconnect
+      this.ui.bindMenuEvents();
+      this.ui.bindLobbyEvents();
+      this.ui.bindGameEvents();
+    }
+
     this.ui.showScreen('menu');
     this.state = 'menu';
     this.roomCode = null;
@@ -827,12 +899,21 @@ class Game {
     // Resume audio context on first user interaction
     const resumeAudio = async () => {
       if (!this.audioInitialized) {
-        await this.audio.init();
-        this.audio.resume();
+        // Set flag BEFORE awaiting to prevent race condition with multiple calls
         this.audioInitialized = true;
-        // Remove listeners after init to prevent memory leaks
-        document.removeEventListener('click', resumeAudio);
-        document.removeEventListener('keydown', resumeAudio);
+        try {
+          await this.audio.init();
+          this.audio.resume();
+          document.removeEventListener('click', resumeAudio);
+          document.removeEventListener('keydown', resumeAudio);
+        } catch (err) {
+          console.error('[Game] Audio init failed:', err);
+          // Reset flag on failure so it can be retried
+          this.audioInitialized = false;
+          // Still remove listeners to prevent infinite retry
+          document.removeEventListener('click', resumeAudio);
+          document.removeEventListener('keydown', resumeAudio);
+        }
       }
     };
 
@@ -857,10 +938,19 @@ class Game {
 
     if (!modal || !openBtn) return;
 
-    // State for key rebinding
-    let listeningElement = null;
-    let listeningAction = null;
-    let listeningIndex = null;
+    // Prevent duplicate setup
+    if (this._controlsMenuSetup) return;
+    this._controlsMenuSetup = true;
+
+    // State for key rebinding (stored on instance for persistence)
+    this._controlsModal = {
+      listeningElement: null,
+      listeningAction: null,
+      listeningIndex: null,
+      previouslyFocusedElement: null
+    };
+
+    const modalState = this._controlsModal;
 
     // Render the current controls
     const renderControls = () => {
@@ -906,49 +996,52 @@ class Game {
     // Start listening for a key press
     const startListening = (element, action, index) => {
       // Cancel previous listening
-      if (listeningElement) {
-        listeningElement.classList.remove('listening');
+      if (modalState.listeningElement) {
+        modalState.listeningElement.classList.remove('listening');
       }
 
-      listeningElement = element;
-      listeningAction = action;
-      listeningIndex = index;
+      modalState.listeningElement = element;
+      modalState.listeningAction = action;
+      modalState.listeningIndex = index;
       element.classList.add('listening');
       element.textContent = 'Press key...';
     };
 
+    // Store handler references on instance for proper removal
     // Handle key press while listening
-    const handleKeyDown = (e) => {
-      if (!listeningElement) return;
+    this._controlsModalHandlers = this._controlsModalHandlers || {};
+
+    this._controlsModalHandlers.handleKeyDown = (e) => {
+      if (!modalState.listeningElement) return;
 
       e.preventDefault();
       e.stopPropagation();
 
       // Cancel on Escape
       if (e.code === 'Escape') {
-        listeningElement.classList.remove('listening');
-        listeningElement = null;
+        modalState.listeningElement.classList.remove('listening');
+        modalState.listeningElement = null;
         renderControls();
         return;
       }
 
       // Set the new key
-      const currentKeys = [...controls.get(listeningAction)];
-      if (listeningIndex < currentKeys.length) {
-        currentKeys[listeningIndex] = e.code;
+      const currentKeys = [...controls.get(modalState.listeningAction)];
+      if (modalState.listeningIndex < currentKeys.length) {
+        currentKeys[modalState.listeningIndex] = e.code;
       } else {
         currentKeys.push(e.code);
       }
-      controls.set(listeningAction, currentKeys);
+      controls.set(modalState.listeningAction, currentKeys);
 
-      listeningElement.classList.remove('listening');
-      listeningElement = null;
+      modalState.listeningElement.classList.remove('listening');
+      modalState.listeningElement = null;
       renderControls();
     };
 
     // Handle mouse button while listening
-    const handleMouseDown = (e) => {
-      if (!listeningElement) return;
+    this._controlsModalHandlers.handleMouseDown = (e) => {
+      if (!modalState.listeningElement) return;
 
       e.preventDefault();
       e.stopPropagation();
@@ -956,24 +1049,21 @@ class Game {
       const mouseCode = `Mouse${e.button}`;
 
       // Set the new key
-      const currentKeys = [...controls.get(listeningAction)];
-      if (listeningIndex < currentKeys.length) {
-        currentKeys[listeningIndex] = mouseCode;
+      const currentKeys = [...controls.get(modalState.listeningAction)];
+      if (modalState.listeningIndex < currentKeys.length) {
+        currentKeys[modalState.listeningIndex] = mouseCode;
       } else {
         currentKeys.push(mouseCode);
       }
-      controls.set(listeningAction, currentKeys);
+      controls.set(modalState.listeningAction, currentKeys);
 
-      listeningElement.classList.remove('listening');
-      listeningElement = null;
+      modalState.listeningElement.classList.remove('listening');
+      modalState.listeningElement = null;
       renderControls();
     };
 
-    // Store the element that had focus before modal opened
-    let previouslyFocusedElement = null;
-
     // Focus trap handler for accessibility
-    const handleFocusTrap = (e) => {
+    this._controlsModalHandlers.handleFocusTrap = (e) => {
       if (e.key !== 'Tab') return;
 
       const focusableElements = modal.querySelectorAll(
@@ -997,36 +1087,43 @@ class Game {
       }
     };
 
+    const handlers = this._controlsModalHandlers;
+
+    // Close modal - defined before open so it can be referenced
+    const closeModal = () => {
+      modal.classList.remove('active');
+      if (modalState.listeningElement) {
+        modalState.listeningElement.classList.remove('listening');
+        modalState.listeningElement = null;
+      }
+      // Remove handlers using stored references
+      document.removeEventListener('keydown', handlers.handleKeyDown, true);
+      document.removeEventListener('mousedown', handlers.handleMouseDown, true);
+      document.removeEventListener('keydown', handlers.handleFocusTrap);
+      // Return focus to the element that opened the modal for accessibility
+      if (modalState.previouslyFocusedElement) {
+        modalState.previouslyFocusedElement.focus();
+      }
+    };
+
     // Open modal
     openBtn.addEventListener('click', () => {
-      previouslyFocusedElement = document.activeElement;
+      // Guard against duplicate listeners if modal is already open
+      if (modal.classList.contains('active')) return;
+
+      modalState.previouslyFocusedElement = document.activeElement;
       modal.classList.add('active');
       renderControls();
-      document.addEventListener('keydown', handleKeyDown, true);
-      document.addEventListener('mousedown', handleMouseDown, true);
-      document.addEventListener('keydown', handleFocusTrap);
+      // Add handlers using stored references
+      document.addEventListener('keydown', handlers.handleKeyDown, true);
+      document.addEventListener('mousedown', handlers.handleMouseDown, true);
+      document.addEventListener('keydown', handlers.handleFocusTrap);
       // Focus first focusable element in modal for accessibility
       const firstFocusable = modal.querySelector('button:not([disabled]), [href], input:not([disabled])');
       if (firstFocusable) {
         firstFocusable.focus();
       }
     });
-
-    // Close modal
-    const closeModal = () => {
-      modal.classList.remove('active');
-      if (listeningElement) {
-        listeningElement.classList.remove('listening');
-        listeningElement = null;
-      }
-      document.removeEventListener('keydown', handleKeyDown, true);
-      document.removeEventListener('mousedown', handleMouseDown, true);
-      document.removeEventListener('keydown', handleFocusTrap);
-      // Return focus to the element that opened the modal for accessibility
-      if (previouslyFocusedElement) {
-        previouslyFocusedElement.focus();
-      }
-    };
 
     closeBtn?.addEventListener('click', closeModal);
     modal.addEventListener('click', (e) => {

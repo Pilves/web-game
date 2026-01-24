@@ -1,5 +1,5 @@
 // Input handler for keyboard and mouse
-import { controls } from './config.js';
+import { controls, CONFIG } from './config.js';
 
 export class Input {
   constructor(game) {
@@ -8,6 +8,8 @@ export class Input {
     this.keys = {};
     this.mouseX = 0;
     this.mouseY = 0;
+    // Default facing angle (0 = right/east). Updated on mouse move when localPlayer exists.
+    // If mouse never moves, player faces right by default.
     this.facing = 0;
     this.flashlightToggle = false;
     this.throwPending = false;  // Track throw action like flashlight
@@ -24,7 +26,9 @@ export class Input {
     // Define handlers as bound methods for later removal
     this._handlers.keydown = (e) => {
       // Don't capture keys when typing in input fields
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      if (e.target.tagName === 'INPUT' ||
+          e.target.tagName === 'TEXTAREA' ||
+          e.target.isContentEditable) {
         return;
       }
 
@@ -67,7 +71,9 @@ export class Input {
 
     this._handlers.keyup = (e) => {
       // Don't track key releases from input fields
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      if (e.target.tagName === 'INPUT' ||
+          e.target.tagName === 'TEXTAREA' ||
+          e.target.isContentEditable) {
         return;
       }
       this.keys[e.code] = false;
@@ -78,21 +84,32 @@ export class Input {
       if (!arena) return;
 
       const rect = arena.getBoundingClientRect();
-      const scaleX = 1200 / rect.width;
-      const scaleY = 800 / rect.height;
+
+      // Prevent division by zero if arena has no dimensions
+      if (rect.width <= 0 || rect.height <= 0) return;
+
+      const scaleX = CONFIG.ARENA_WIDTH / rect.width;
+      const scaleY = CONFIG.ARENA_HEIGHT / rect.height;
 
       this.mouseX = (e.clientX - rect.left) * scaleX;
       this.mouseY = (e.clientY - rect.top) * scaleY;
 
       // Calculate facing angle from local player position to mouse
-      if (this.game.localPlayer) {
-        const dx = this.mouseX - this.game.localPlayer.x;
-        const dy = this.mouseY - this.game.localPlayer.y;
-        this.facing = Math.atan2(dy, dx);
-      }
+      if (!this.game.localPlayer) return;
+
+      const dx = this.mouseX - this.game.localPlayer.x;
+      const dy = this.mouseY - this.game.localPlayer.y;
+      this.facing = Math.atan2(dy, dx);
     };
 
     this._handlers.mousedown = (e) => {
+      // Don't capture mouse input when interacting with input fields
+      if (e.target.tagName === 'INPUT' ||
+          e.target.tagName === 'TEXTAREA' ||
+          e.target.isContentEditable) {
+        return;
+      }
+
       if (e.button === 0) {
         this.keys['Mouse0'] = true;  // Left click
         // Check if left click is throw action
@@ -112,6 +129,13 @@ export class Input {
     };
 
     this._handlers.mouseup = (e) => {
+      // Don't track mouse releases from input fields
+      if (e.target.tagName === 'INPUT' ||
+          e.target.tagName === 'TEXTAREA' ||
+          e.target.isContentEditable) {
+        return;
+      }
+
       if (e.button === 0) this.keys['Mouse0'] = false;
       if (e.button === 1) this.keys['Mouse1'] = false;
       if (e.button === 2) this.keys['Mouse2'] = false;
@@ -121,6 +145,8 @@ export class Input {
 
     this._handlers.blur = () => {
       this.keys = {};
+      this.throwPending = false;
+      this.flashlightToggle = false;
     };
 
     // Add all event listeners
@@ -150,8 +176,9 @@ export class Input {
   getState(consumeToggles = true) {
     // Check each action against configured keys
     const isPressed = (action) => {
-      const keys = controls.get(action);
-      return keys.some(key => this.keys[key]);
+      const keys = controls.get(action) || [];
+      // Use explicit boolean to avoid returning undefined
+      return keys.some(key => !!this.keys[key]);
     };
 
     const input = {
@@ -174,10 +201,16 @@ export class Input {
     return input;
   }
 
-  // Reset all input state
+  /**
+   * Reset all input state. Call this on:
+   * - Game start (new game)
+   * - Disconnect from server
+   * - Any state transition that should clear pending inputs
+   */
   reset() {
     this.keys = {};
     this.flashlightToggle = false;
     this.throwPending = false;
+    // Note: facing is intentionally NOT reset - it retains the last known direction
   }
 }

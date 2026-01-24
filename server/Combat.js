@@ -40,6 +40,18 @@ const _updatedProjectiles = [];
 const _events = [];
 
 // Reusable rect objects to reduce GC pressure
+// WARNING: These are shared mutable objects! Functions that return these objects
+// (getPlayerRect, getProjectileRect) return references to these same objects.
+// Callers MUST use the returned value immediately before any other call to these
+// functions, or copy the values if they need to persist across multiple calls.
+// Example of UNSAFE code:
+//   const rect1 = getPlayerRect(player1);
+//   const rect2 = getPlayerRect(player2);  // rect1 is now INVALID, points to player2's data!
+// Example of SAFE code:
+//   const rect1 = getPlayerRect(player1);
+//   // use rect1 immediately here
+//   const rect2 = getPlayerRect(player2);
+//   // use rect2 immediately here
 const _playerRect = { x: 0, y: 0, width: PLAYER_SIZE, height: PLAYER_SIZE };
 const _projectileRect = { x: 0, y: 0, width: PROJECTILE_SIZE, height: PROJECTILE_SIZE };
 
@@ -148,6 +160,11 @@ function createProjectile(player, projectileId) {
  * @returns {boolean} True if player can throw
  */
 function canThrow(player, now) {
+  // Dead players can't throw
+  if (player.hearts <= 0) {
+    return false;
+  }
+
   // Must have ammo
   if (!player.hasAmmo) {
     return false;
@@ -176,8 +193,7 @@ function checkProjectileHit(projectile, players) {
   const projRect = getProjectileRect(projectile);
   const now = Date.now();
 
-  for (const playerId in players) {
-    const player = players[playerId];
+  for (const [playerId, player] of Object.entries(players)) {
 
     // Cannot hit yourself
     if (player.id === projectile.ownerId) {
@@ -189,10 +205,10 @@ function checkProjectileHit(projectile, players) {
       continue;
     }
 
-    // Cannot hit stunned players
-    if (player.stunnedUntil && now < player.stunnedUntil) {
-      continue;
-    }
+    // REMOVED: Stunned players CAN be hit (they just can't move)
+    // if (player.stunnedUntil && now < player.stunnedUntil) {
+    //   continue;
+    // }
 
     // Cannot hit disconnected players
     if (!player.connected) {
@@ -235,14 +251,18 @@ function handleHit(victim, attacker, projectile, obstacles = [], arenaInset = 0)
 
   // Apply knockback - push away from projectile direction
   // Normalize projectile velocity to get direction
+  // Division by zero protection: speed is always > 0 for active projectiles
+  // since they have non-zero velocity, but we check explicitly to be safe
   const speed = Math.hypot(projectile.vx, projectile.vy);
   if (speed > 0) {
-    const dirX = projectile.vx / speed;
-    const dirY = projectile.vy / speed;
-
-    // Store old position for collision resolution
+    // Store position BEFORE knockback for collision resolution
+    // resolveCollision needs the pre-knockback position to correctly
+    // calculate which direction to push the player out of obstacles
     const oldX = victim.x;
     const oldY = victim.y;
+
+    const dirX = projectile.vx / speed;
+    const dirY = projectile.vy / speed;
 
     // Apply knockback distance
     victim.x += dirX * KNOCKBACK_DISTANCE;
@@ -273,7 +293,9 @@ function handleHit(victim, attacker, projectile, obstacles = [], arenaInset = 0)
 
   if (isDeath) {
     // Increment attacker's kill count only on actual kill
-    if (attacker) {
+    // Explicit null/undefined check: attacker can be null if the throwing player
+    // disconnected before the projectile hit, or if projectile.ownerId is invalid
+    if (attacker !== null && attacker !== undefined && attacker.connected) {
       attacker.kills = (attacker.kills || 0) + 1;
     }
     victim.deaths = (victim.deaths || 0) + 1;
@@ -305,30 +327,30 @@ function updateProjectiles(projectiles, dt, obstacles, players, arenaInset = 0) 
   const now = Date.now();
 
   for (const projectile of projectiles) {
-    // Move projectile
-    projectile.x += projectile.vx * dt;
-    projectile.y += projectile.vy * dt;
-
-    // Check lifetime (2 seconds max)
-    if (now - projectile.createdAt > PROJECTILE_LIFETIME) {
+    // Check lifetime FIRST (2 seconds max) - prevents extra frame of movement
+    if (now - projectile.createdAt >= PROJECTILE_LIFETIME) {
       // Projectile expired, don't add to updated list
       continue;
     }
+
+    // Move projectile
+    projectile.x += projectile.vx * dt;
+    projectile.y += projectile.vy * dt;
 
     // Handle boundaries - wrap around like Snake (except during sudden death)
     const halfSize = PROJECTILE_SIZE / 2;
     if (arenaInset === 0) {
       // Wrap around mode
       if (projectile.x < -halfSize) {
-        projectile.x = ARENA_WIDTH + halfSize + (projectile.x + halfSize);
+        projectile.x += ARENA_WIDTH;
       } else if (projectile.x > ARENA_WIDTH + halfSize) {
-        projectile.x = -halfSize + (projectile.x - ARENA_WIDTH - halfSize);
+        projectile.x -= ARENA_WIDTH;
       }
 
       if (projectile.y < -halfSize) {
-        projectile.y = ARENA_HEIGHT + halfSize + (projectile.y + halfSize);
+        projectile.y += ARENA_HEIGHT;
       } else if (projectile.y > ARENA_HEIGHT + halfSize) {
-        projectile.y = -halfSize + (projectile.y - ARENA_HEIGHT - halfSize);
+        projectile.y -= ARENA_HEIGHT;
       }
     } else {
       // During sudden death, projectiles hit walls
@@ -358,8 +380,9 @@ function updateProjectiles(projectiles, dt, obstacles, players, arenaInset = 0) 
     // Check player collision
     const hitPlayer = checkProjectileHit(projectile, players);
     if (hitPlayer) {
-      // Find attacker
-      const attacker = players[projectile.ownerId] || null;
+      // Find attacker - use Object.hasOwn() to safely check if player exists
+      // This avoids issues with inherited properties or prototype pollution
+      const attacker = Object.hasOwn(players, projectile.ownerId) ? players[projectile.ownerId] : null;
 
       // Handle the hit (pass obstacles and arenaInset for knockback collision resolution)
       const hitEvent = handleHit(hitPlayer, attacker, projectile, obstacles, arenaInset);

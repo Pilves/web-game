@@ -37,13 +37,38 @@ export class ControlsManager {
     this.controls = this.load();
   }
 
+  isLocalStorageAvailable() {
+    try {
+      const test = '__storage_test__';
+      localStorage.setItem(test, test);
+      localStorage.removeItem(test);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   load() {
+    if (!this.isLocalStorageAvailable()) {
+      return { ...DEFAULT_CONTROLS };
+    }
     try {
       const saved = localStorage.getItem('lightsout-controls');
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Merge with defaults in case new controls were added
-        return { ...DEFAULT_CONTROLS, ...parsed };
+        // Merge saved over defaults, but ensure all default keys exist
+        const merged = { ...DEFAULT_CONTROLS };
+        for (const [action, keys] of Object.entries(parsed)) {
+          if (action in DEFAULT_CONTROLS) {
+            // Validate keys is an array of strings before using
+            if (Array.isArray(keys) && keys.every(k => typeof k === 'string')) {
+              merged[action] = keys;
+            } else {
+              console.warn('[Controls] Invalid keys for action', action, '- using defaults');
+            }
+          }
+        }
+        return merged;
       }
     } catch (e) {
       console.warn('[Controls] Failed to load saved controls:', e);
@@ -52,6 +77,10 @@ export class ControlsManager {
   }
 
   save() {
+    if (!this.isLocalStorageAvailable()) {
+      console.warn('[Controls] localStorage not available');
+      return;
+    }
     try {
       localStorage.setItem('lightsout-controls', JSON.stringify(this.controls));
     } catch (e) {
@@ -64,6 +93,24 @@ export class ControlsManager {
   }
 
   set(action, keys) {
+    // Validate action exists
+    if (!(action in DEFAULT_CONTROLS)) {
+      console.warn('[Controls] Unknown action:', action);
+      return;
+    }
+
+    // Validate keys is an array
+    if (!Array.isArray(keys)) {
+      console.warn('[Controls] Keys must be an array');
+      return;
+    }
+
+    // Validate each key is a string
+    if (!keys.every(k => typeof k === 'string')) {
+      console.warn('[Controls] All keys must be strings');
+      return;
+    }
+
     this.controls[action] = keys;
     this.save();
   }
@@ -98,6 +145,22 @@ export class ControlsManager {
       'Escape': 'Esc', 'Enter': 'Enter', 'Tab': 'Tab',
       'Backspace': 'Backspace', 'Delete': 'Delete',
       'Mouse0': 'Left Click', 'Mouse1': 'Middle Click', 'Mouse2': 'Right Click',
+      'Comma': ',',
+      'Period': '.',
+      'Slash': '/',
+      'Backslash': '\\',
+      'BracketLeft': '[',
+      'BracketRight': ']',
+      'Semicolon': ';',
+      'Quote': "'",
+      'Backquote': '`',
+      'Minus': '-',
+      'Equal': '=',
+      'NumpadEnter': 'Num Enter',
+      'NumpadAdd': 'Num +',
+      'NumpadSubtract': 'Num -',
+      'NumpadMultiply': 'Num *',
+      'NumpadDivide': 'Num /',
     };
     return names[code] || code;
   }

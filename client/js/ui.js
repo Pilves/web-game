@@ -3,6 +3,14 @@ export class UI {
   constructor(game) {
     this.game = game;
     this.currentScreen = null;
+    this.pendingTransition = null;
+    this.copyTimeout = null;
+    this.copyInProgress = false; // Guard against rapid clicks during async clipboard operations
+    this.boundHandlers = {
+      menu: [],
+      lobby: [],
+      game: []
+    };
 
     this.bindMenuEvents();
     this.bindLobbyEvents();
@@ -10,10 +18,20 @@ export class UI {
   }
 
   showScreen(screenName) {
-    const currentScreen = document.querySelector('.screen.active');
-    const newScreen = document.getElementById(`${screenName}-screen`);
+    // Cancel any pending transition and remove animation classes to prevent race conditions
+    if (this.pendingTransition) {
+      clearTimeout(this.pendingTransition);
+      this.pendingTransition = null;
+      // Remove animation classes from all screens to cancel ongoing CSS animations
+      document.querySelectorAll('.screen').forEach(s => {
+        s.classList.remove('screen-fade-out', 'screen-fade-in');
+      });
+    }
 
+    const newScreen = document.getElementById(`${screenName}-screen`);
     if (!newScreen) return;
+
+    const currentScreen = this.currentScreen ? document.getElementById(`${this.currentScreen}-screen`) : null;
 
     // If transitioning from menu, re-enable menu buttons
     if (this.currentScreen === 'menu' && screenName !== 'menu') {
@@ -25,7 +43,8 @@ export class UI {
       currentScreen.classList.add('screen-fade-out');
 
       // After fade out, switch screens
-      setTimeout(() => {
+      this.pendingTransition = setTimeout(() => {
+        this.pendingTransition = null;
         // Hide all screens
         document.querySelectorAll('.screen').forEach(s => {
           s.classList.remove('active', 'screen-fade-out', 'screen-fade-in');
@@ -138,6 +157,9 @@ export class UI {
       // For solo play: host just needs to be ready (or we skip ready check for host)
       // For multiplayer: all non-host players must be ready
       const nonHostPlayers = lobbyData.players.filter(p => p.id !== lobbyData.host);
+      // Note: When nonHostPlayers is empty (solo host), [].every() returns true (vacuous truth).
+      // This is intentional - it allows the host to start a solo game without waiting for
+      // other players to ready up. The enoughPlayers check below ensures at least the host exists.
       const allNonHostReady = nonHostPlayers.every(p => p.ready);
       const enoughPlayers = lobbyData.players.length >= 1; // Allow solo
 
@@ -170,6 +192,9 @@ export class UI {
     const [id, x, y, facing, flashlight, hearts, hasAmmo, stunned, invincible] = playerData;
 
     // Update hearts display
+    // Note: Heart symbols are rendered using Unicode characters. Spacing between hearts
+    // is controlled by CSS letter-spacing on #hearts-display (see styles.css).
+    // If hearts appear too close together, adjust letter-spacing in CSS.
     const heartsDisplay = document.getElementById('hearts-display');
     if (heartsDisplay) {
       const heartCount = Math.max(0, hearts);
@@ -178,6 +203,8 @@ export class UI {
     }
 
     // Update ammo display
+    // Note: Ammo indicator uses Unicode circles. Styling and size are controlled
+    // by CSS on #ammo-display (see styles.css).
     const ammoDisplay = document.getElementById('ammo-display');
     if (ammoDisplay) {
       ammoDisplay.textContent = hasAmmo ? '\u25CF' : '\u25CB';
@@ -349,7 +376,7 @@ export class UI {
     const roomCodeInput = document.getElementById('room-code-input');
 
     if (createRoomBtn) {
-      createRoomBtn.addEventListener('click', () => {
+      const createHandler = () => {
         const name = playerNameInput?.value.trim() || 'Player';
         if (name) {
           this.clearError();
@@ -358,11 +385,13 @@ export class UI {
           createRoomBtn.classList.add('loading');
           this.game.network.createRoom(name);
         }
-      });
+      };
+      createRoomBtn.addEventListener('click', createHandler);
+      this.boundHandlers.menu.push({ element: createRoomBtn, event: 'click', handler: createHandler });
     }
 
     if (joinRoomBtn) {
-      joinRoomBtn.addEventListener('click', () => {
+      const joinHandler = () => {
         const name = playerNameInput?.value.trim() || 'Player';
         const code = roomCodeInput?.value.trim().toUpperCase();
 
@@ -376,25 +405,31 @@ export class UI {
         joinRoomBtn.disabled = true;
         joinRoomBtn.classList.add('loading');
         this.game.network.joinRoom(code, name);
-      });
+      };
+      joinRoomBtn.addEventListener('click', joinHandler);
+      this.boundHandlers.menu.push({ element: joinRoomBtn, event: 'click', handler: joinHandler });
     }
 
     // Allow Enter key to submit room code
     if (roomCodeInput) {
-      roomCodeInput.addEventListener('keydown', (e) => {
+      const roomCodeKeyHandler = (e) => {
         if (e.key === 'Enter') {
           joinRoomBtn?.click();
         }
-      });
+      };
+      roomCodeInput.addEventListener('keydown', roomCodeKeyHandler);
+      this.boundHandlers.menu.push({ element: roomCodeInput, event: 'keydown', handler: roomCodeKeyHandler });
     }
 
     // Allow Enter key to create room from name input
     if (playerNameInput) {
-      playerNameInput.addEventListener('keydown', (e) => {
+      const nameKeyHandler = (e) => {
         if (e.key === 'Enter' && !roomCodeInput?.value.trim()) {
           createRoomBtn?.click();
         }
-      });
+      };
+      playerNameInput.addEventListener('keydown', nameKeyHandler);
+      this.boundHandlers.menu.push({ element: playerNameInput, event: 'keydown', handler: nameKeyHandler });
     }
   }
 
@@ -406,66 +441,97 @@ export class UI {
     const playersList = document.getElementById('players-list');
 
     if (readyBtn) {
-      readyBtn.addEventListener('click', () => {
+      const readyHandler = () => {
         this.game.network.toggleReady();
-      });
+      };
+      readyBtn.addEventListener('click', readyHandler);
+      this.boundHandlers.lobby.push({ element: readyBtn, event: 'click', handler: readyHandler });
     }
 
     if (startBtn) {
-      startBtn.addEventListener('click', () => {
+      const startHandler = () => {
         this.game.network.startGame();
-      });
+      };
+      startBtn.addEventListener('click', startHandler);
+      this.boundHandlers.lobby.push({ element: startBtn, event: 'click', handler: startHandler });
     }
 
     if (leaveBtn) {
-      leaveBtn.addEventListener('click', () => {
+      const leaveHandler = () => {
         this.game.network.quit();
         this.game.roomCode = null;
         this.game.lobbyData = null;
         this.game.isHost = false;
         this.showScreen('menu');
-      });
+      };
+      leaveBtn.addEventListener('click', leaveHandler);
+      this.boundHandlers.lobby.push({ element: leaveBtn, event: 'click', handler: leaveHandler });
     }
 
     if (copyCodeBtn) {
-      copyCodeBtn.addEventListener('click', () => {
+      const copyHandler = () => {
+        // Guard against rapid clicks: ignore clicks while a clipboard operation is in progress.
+        // This prevents multiple async clipboard.writeText promises from racing and causing
+        // inconsistent button text states.
+        if (this.copyInProgress) return;
+
         const codeDisplay = document.getElementById('room-code-display');
         const code = this.game.roomCode || codeDisplay?.textContent;
         if (code && code !== '----') {
+          this.copyInProgress = true;
           navigator.clipboard.writeText(code).then(() => {
+            this.copyInProgress = false;
+            // Clear any existing timeout to reset the timer on successful copy.
+            // This handles the case where a user clicks again after the guard is released
+            // but before the timeout fires - the "Copied!" display will be extended.
+            if (this.copyTimeout) {
+              clearTimeout(this.copyTimeout);
+            }
             copyCodeBtn.textContent = 'Copied!';
-            setTimeout(() => {
+            this.copyTimeout = setTimeout(() => {
               copyCodeBtn.textContent = 'Copy';
+              this.copyTimeout = null;
             }, 2000);
           }).catch(() => {
+            this.copyInProgress = false;
             // Fallback: select the code text and inform user
             if (codeDisplay) {
               const range = document.createRange();
               range.selectNodeContents(codeDisplay);
               const sel = window.getSelection();
-              sel.removeAllRanges();
-              sel.addRange(range);
+              if (sel) {
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }
               // Show feedback to user about manual copy
+              if (this.copyTimeout) {
+                clearTimeout(this.copyTimeout);
+              }
               copyCodeBtn.textContent = 'Press Ctrl+C';
-              setTimeout(() => {
+              this.copyTimeout = setTimeout(() => {
                 copyCodeBtn.textContent = 'Copy';
+                this.copyTimeout = null;
               }, 3000);
             }
           });
         }
-      });
+      };
+      copyCodeBtn.addEventListener('click', copyHandler);
+      this.boundHandlers.lobby.push({ element: copyCodeBtn, event: 'click', handler: copyHandler });
     }
 
     // Kick button delegation
     if (playersList) {
-      playersList.addEventListener('click', (e) => {
+      const kickHandler = (e) => {
         if (e.target.classList.contains('kick-btn')) {
           const playerId = e.target.dataset.id;
           if (playerId) {
             this.game.network.kickPlayer(playerId);
           }
         }
-      });
+      };
+      playersList.addEventListener('click', kickHandler);
+      this.boundHandlers.lobby.push({ element: playersList, event: 'click', handler: kickHandler });
     }
 
     // Settings inputs
@@ -473,21 +539,25 @@ export class UI {
     const timeInput = document.getElementById('time-setting');
 
     if (livesInput) {
-      livesInput.addEventListener('change', () => {
+      const livesHandler = () => {
         const lives = parseInt(livesInput.value, 10);
         if (lives >= 1 && lives <= 5) {
           this.game.network.updateSettings({ lives });
         }
-      });
+      };
+      livesInput.addEventListener('change', livesHandler);
+      this.boundHandlers.lobby.push({ element: livesInput, event: 'change', handler: livesHandler });
     }
 
     if (timeInput) {
-      timeInput.addEventListener('change', () => {
+      const timeHandler = () => {
         const timeLimit = parseInt(timeInput.value, 10);
         if (timeLimit >= 60 && timeLimit <= 300) {
           this.game.network.updateSettings({ timeLimit });
         }
-      });
+      };
+      timeInput.addEventListener('change', timeHandler);
+      this.boundHandlers.lobby.push({ element: timeInput, event: 'change', handler: timeHandler });
     }
   }
 
@@ -498,19 +568,23 @@ export class UI {
     const playAgainBtn = document.getElementById('play-again-btn');
 
     if (pauseBtn) {
-      pauseBtn.addEventListener('click', () => {
+      const pauseHandler = () => {
         this.game.network.pause();
-      });
+      };
+      pauseBtn.addEventListener('click', pauseHandler);
+      this.boundHandlers.game.push({ element: pauseBtn, event: 'click', handler: pauseHandler });
     }
 
     if (resumeBtn) {
-      resumeBtn.addEventListener('click', () => {
+      const resumeHandler = () => {
         this.game.network.resume();
-      });
+      };
+      resumeBtn.addEventListener('click', resumeHandler);
+      this.boundHandlers.game.push({ element: resumeBtn, event: 'click', handler: resumeHandler });
     }
 
     if (quitBtn) {
-      quitBtn.addEventListener('click', () => {
+      const quitHandler = () => {
         this.game.network.quit();
         this.game.localPlayer = null;
         this.game.serverState = null;
@@ -518,17 +592,21 @@ export class UI {
         if (this.game.effects) {
           this.game.effects.clear();
         }
-      });
+      };
+      quitBtn.addEventListener('click', quitHandler);
+      this.boundHandlers.game.push({ element: quitBtn, event: 'click', handler: quitHandler });
     }
 
     if (playAgainBtn) {
-      playAgainBtn.addEventListener('click', () => {
+      const playAgainHandler = () => {
         this.game.network.returnToLobby();
         this.game.localPlayer = null;
         this.game.serverState = null;
         this.game.prevServerState = null;
         this.showScreen('lobby');
-      });
+      };
+      playAgainBtn.addEventListener('click', playAgainHandler);
+      this.boundHandlers.game.push({ element: playAgainBtn, event: 'click', handler: playAgainHandler });
     }
   }
 
@@ -561,5 +639,29 @@ export class UI {
       joinRoomBtn.disabled = false;
       joinRoomBtn.classList.remove('loading');
     }
+  }
+
+  // Cleanup all event listeners to prevent memory leaks
+  cleanup() {
+    // Clear pending timeouts and reset state flags
+    if (this.pendingTransition) {
+      clearTimeout(this.pendingTransition);
+      this.pendingTransition = null;
+    }
+    if (this.copyTimeout) {
+      clearTimeout(this.copyTimeout);
+      this.copyTimeout = null;
+    }
+    this.copyInProgress = false;
+
+    // Remove all bound event listeners
+    for (const category of Object.values(this.boundHandlers)) {
+      for (const { element, event, handler } of category) {
+        if (element) {
+          element.removeEventListener(event, handler);
+        }
+      }
+    }
+    this.boundHandlers = { menu: [], lobby: [], game: [] };
   }
 }

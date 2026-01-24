@@ -46,6 +46,20 @@ class GameManager {
   }
 
   /**
+   * Clean up stale rate limit entries periodically
+   * Call this periodically (e.g., every 5 minutes) to clean stale entries
+   */
+  cleanupStaleRateLimits() {
+    const now = Date.now();
+    const STALE_THRESHOLD = 300000; // 5 minutes
+    for (const [key, timestamp] of this.eventRateLimits) {
+      if (now - timestamp >= STALE_THRESHOLD) {
+        this.eventRateLimits.delete(key);
+      }
+    }
+  }
+
+  /**
    * Generate a unique 4-letter room code
    */
   generateRoomCode() {
@@ -450,13 +464,20 @@ class GameManager {
     // Remove player from game state but keep in room for potential return
     room.removePlayer(socket.id);
 
+    // HIGH-13: Re-check room existence and state before calling endGame (TOCTOU defense)
+    // The room could have been deleted or state changed during removePlayer()
+    const roomAfterRemove = this.rooms.get(player.roomCode);
+    if (!roomAfterRemove) {
+      return; // Room was deleted during removePlayer
+    }
+
     // Check if game should end (not enough players)
-    if (room.state === 'playing' || room.state === 'paused') {
-      const activePlayers = Array.from(room.gamePlayers?.values() || [])
+    if (roomAfterRemove.state === 'playing' || roomAfterRemove.state === 'paused') {
+      const activePlayers = Array.from(roomAfterRemove.gamePlayers?.values() || [])
         .filter(p => p.connected).length;
 
       if (activePlayers < CONSTANTS.MIN_PLAYERS) {
-        room.endGame();
+        roomAfterRemove.endGame();
       }
     }
   }
@@ -478,7 +499,6 @@ class GameManager {
     player.ready = false;
 
     // Check if all players have requested return to lobby
-    room.returnToLobbyRequests = room.returnToLobbyRequests || new Set();
     room.returnToLobbyRequests.add(socket.id);
 
     // If host requests or all remaining players request, return to lobby
@@ -501,6 +521,9 @@ class GameManager {
     // Clean up rate limit entries for this socket
     this.cleanupRateLimits(socket.id);
 
+    // LOW-10: Clean up room creation cooldown for this socket
+    this.roomCreationCooldown.delete(socket.id);
+
     const player = this.players.get(socket.id);
     if (!player) {
       console.log(`Unknown player disconnected: ${socket.id}`);
@@ -515,18 +538,24 @@ class GameManager {
 
     console.log(`${player.name} (${socket.id}) disconnected from room ${room.code}`);
 
-    // Remove player from room
+    // HIGH-14: Handle in-game disconnect BEFORE removing player from maps
+    // This ensures handlePlayerDisconnect has access to player data for proper state sync
+    if (room.state === 'playing' || room.state === 'paused') {
+      room.handlePlayerDisconnect(socket.id);
+    }
+
+    // LOW-18: Clean up input rate tracking in GameRoom (for lobby disconnects too)
+    if (room.inputRateTracking) {
+      room.inputRateTracking.delete(socket.id);
+    }
+
+    // Remove player from room (after handling disconnect)
     room.players.delete(socket.id);
     this.players.delete(socket.id);
 
     // Clean up returnToLobbyRequests
     if (room.returnToLobbyRequests) {
       room.returnToLobbyRequests.delete(socket.id);
-    }
-
-    // Handle in-game disconnect
-    if (room.state === 'playing' || room.state === 'paused') {
-      room.handlePlayerDisconnect(socket.id);
     }
 
     // If room is empty, delete it
@@ -541,8 +570,10 @@ class GameManager {
     if (room.host === socket.id) {
       // Get first remaining player as new host
       const newHost = room.players.keys().next().value;
-      room.host = newHost;
-      console.log(`New host for room ${room.code}: ${room.players.get(newHost).name}`);
+      if (newHost) {
+        room.host = newHost;
+        console.log(`New host for room ${room.code}: ${room.players.get(newHost).name}`);
+      }
     }
 
     // Notify remaining players
@@ -556,7 +587,7 @@ class GameManager {
       });
 
       // Check if game should end
-      const activePlayers = room.getActivePlayers ? room.getActivePlayers().length : room.players.size;
+      const activePlayers = room.getActivePlayers ? room.getActivePlayers().length : Array.from(room.gamePlayers.values()).filter(p => p.connected).length;
       if (activePlayers < CONSTANTS.MIN_PLAYERS &&
           (room.state === 'playing' || room.state === 'paused')) {
         room.endGame();

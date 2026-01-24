@@ -14,12 +14,21 @@ export class Effects {
     this.arena = document.getElementById('arena');
     if (!this.arena) return;
 
-    // Pre-allocate ripple elements
-    for (let i = 0; i < 30; i++) {
-      const el = document.createElement('div');
-      el.className = 'sound-ripple';
-      this.arena.appendChild(el);
-      this.ripplePool.push(el);
+    // Pre-allocate ripple elements with Effects-specific class
+    // Use 'effects-ripple' class to avoid conflicts with Renderer's 'sound-ripple' pool
+    // Each class manages its own separate pool of ripple elements
+    const existingEffectsRipples = this.arena.querySelectorAll('.effects-ripple');
+    if (existingEffectsRipples.length > 0) {
+      // Reuse existing Effects ripples if they exist
+      this.ripplePool = Array.from(existingEffectsRipples);
+    } else {
+      // Create new ripples for Effects class only
+      for (let i = 0; i < 30; i++) {
+        const el = document.createElement('div');
+        el.className = 'effects-ripple sound-ripple'; // effects-ripple for identification, sound-ripple for styling
+        this.arena.appendChild(el);
+        this.ripplePool.push(el);
+      }
     }
 
     // Pre-allocate impact flash elements
@@ -36,7 +45,8 @@ export class Effects {
 
   // Show a sound ripple at position
   showSoundRipple(x, y, type = 'footstep') {
-    if (!this.initialized) return;
+    if (!this.arena || this.ripplePool.length === 0) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
     // Get next ripple from pool (circular)
     const el = this.ripplePool[this.rippleIndex];
@@ -45,6 +55,8 @@ export class Effects {
     // Reset and position
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
+    el.style.transform = '';  // Reset transform
+    el.style.opacity = '';    // Reset opacity
     el.className = `sound-ripple active ${type}`;
 
     // Remove active class after animation
@@ -70,15 +82,22 @@ export class Effects {
   // Show impact flash at position (using object pool)
   showImpactFlash(x, y) {
     if (!this.arena || this.flashPool.length === 0) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
     // Get next flash element from pool (circular)
     const el = this.flashPool[this.flashIndex];
     this.flashIndex = (this.flashIndex + 1) % this.flashPool.length;
 
-    // Position and show
+    // Position and show with proper animation reset
     el.style.left = `${x - 30}px`;
     el.style.top = `${y - 30}px`;
     el.style.display = 'block';
+
+    // Proper animation reset pattern: remove class, force reflow, then add class
+    el.classList.remove('active');
+    void el.offsetWidth;  // Force reflow to reset animation
+    el.style.transform = '';
+    el.style.opacity = '';
     el.classList.add('active');
 
     // Hide after animation
@@ -146,16 +165,22 @@ export class Effects {
 
     this.arena.classList.remove('muzzle-flash', 'shake');
 
-    // Reset all ripples
+    // Reset all ripples - complete style reset to prevent stale visual state
     this.ripplePool.forEach(el => {
       el.classList.remove('active');
+      el.style.transform = '';  // Reset any transform applied during animation
+      el.style.opacity = '';    // Reset any opacity changes
     });
+    this.rippleIndex = 0;  // Reset pool index
 
-    // Reset all pooled impact flashes
+    // Reset all pooled impact flashes - complete style reset
     this.flashPool.forEach(el => {
       el.style.display = 'none';
       el.classList.remove('active');
+      el.style.transform = '';  // Reset any transform applied during animation
+      el.style.opacity = '';    // Reset any opacity changes
     });
+    this.flashIndex = 0;  // Reset pool index
   }
 }
 
