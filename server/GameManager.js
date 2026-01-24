@@ -10,6 +10,7 @@ class GameManager {
     this.io = io;
     this.rooms = new Map();      // roomCode -> GameRoom
     this.players = new Map();    // socket.id -> player object
+    this.roomCreationCooldown = new Map(); // socket.id -> timestamp (rate limiting)
   }
 
   /**
@@ -58,6 +59,18 @@ class GameManager {
    * Create a new room with the socket as host
    */
   createRoom(socket, data) {
+    // Rate limiting: Check if server is at maximum room capacity
+    if (this.rooms.size >= CONSTANTS.MAX_ROOMS) {
+      socket.emit('join-error', { message: 'Server is full. Try again later.' });
+      return;
+    }
+
+    // Rate limiting: Check room creation cooldown
+    if (this.roomCreationCooldown.has(socket.id)) {
+      socket.emit('join-error', { message: 'Please wait before creating another room' });
+      return;
+    }
+
     const { name } = data || {};
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -65,8 +78,12 @@ class GameManager {
       return;
     }
 
-    const playerName = name.trim().substring(0, 20); // Limit name length
+    const playerName = name.trim().substring(0, 20).replace(/[<>"'&]/g, ''); // Limit name length and sanitize
     const code = this.generateRoomCode();
+
+    // Set room creation cooldown
+    this.roomCreationCooldown.set(socket.id, Date.now());
+    setTimeout(() => this.roomCreationCooldown.delete(socket.id), CONSTANTS.ROOM_CREATION_COOLDOWN);
 
     // Create the game room
     const room = new GameRoom(this.io, code, socket.id);
@@ -111,8 +128,13 @@ class GameManager {
       return;
     }
 
-    const roomCode = code.toUpperCase().trim();
-    const playerName = name.trim().substring(0, 20);
+    const roomCode = String(code || '').toUpperCase().trim();
+    if (!/^[A-Z]{4}$/.test(roomCode)) {
+      socket.emit('join-error', { message: 'Invalid room code format' });
+      return;
+    }
+
+    const playerName = name.trim().substring(0, 20).replace(/[<>"'&]/g, ''); // Sanitize
 
     // Check if room exists
     const room = this.rooms.get(roomCode);
@@ -219,7 +241,8 @@ class GameManager {
     const kickedSocket = this.io.sockets.sockets.get(playerId);
     if (kickedSocket) {
       kickedSocket.leave(room.code);
-      kickedSocket.emit('join-error', { message: 'You have been kicked from the room' });
+      // Emit 'kicked' event so client can handle it properly
+      kickedSocket.emit('kicked');
     }
 
     this.broadcastLobbyUpdate(room);
@@ -231,6 +254,8 @@ class GameManager {
    * Host updates game settings
    */
   updateSettings(socket, data) {
+    if (!data || typeof data !== 'object') return;
+
     const player = this.players.get(socket.id);
     if (!player) return;
 
@@ -243,7 +268,7 @@ class GameManager {
     // Only update during lobby
     if (room.state !== 'lobby') return;
 
-    const { lives, timeLimit } = data || {};
+    const { lives, timeLimit } = data;
 
     // Validate and update lives
     if (lives !== undefined) {
@@ -437,6 +462,11 @@ class GameManager {
     // Remove player from room
     room.players.delete(socket.id);
     this.players.delete(socket.id);
+
+    // Clean up returnToLobbyRequests
+    if (room.returnToLobbyRequests) {
+      room.returnToLobbyRequests.delete(socket.id);
+    }
 
     // Handle in-game disconnect
     if (room.state === 'playing' || room.state === 'paused') {

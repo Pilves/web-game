@@ -73,6 +73,49 @@ class GameRoom {
 
     // Return to lobby requests
     this.returnToLobbyRequests = new Set();
+
+    // State sequence number for network synchronization
+    this.stateSequence = 0;
+
+    // Cached object representation of gamePlayers (updated when players change)
+    this.gamePlayersObject = {};
+
+    // Rate limiting: Track input timestamps per player
+    this.inputRateTracking = new Map(); // playerId -> { timestamps: [], lastWarning: 0 }
+  }
+
+  /**
+   * Check if input rate is within limits (prevents flooding)
+   * @param {string} playerId - Player socket ID
+   * @returns {boolean} true if input should be processed, false if rate limited
+   */
+  checkInputRateLimit(playerId) {
+    const now = Date.now();
+    const windowMs = 1000; // 1 second window
+    const maxPackets = CONSTANTS.INPUT_RATE_LIMIT;
+
+    let tracking = this.inputRateTracking.get(playerId);
+    if (!tracking) {
+      tracking = { timestamps: [], lastWarning: 0 };
+      this.inputRateTracking.set(playerId, tracking);
+    }
+
+    // Remove timestamps older than the window
+    tracking.timestamps = tracking.timestamps.filter(t => now - t < windowMs);
+
+    // Check if over limit
+    if (tracking.timestamps.length >= maxPackets) {
+      // Log warning at most once per second
+      if (now - tracking.lastWarning > 1000) {
+        console.log(`[GameRoom ${this.code}] Rate limiting player ${playerId.substring(0, 8)}: ${tracking.timestamps.length} packets/sec`);
+        tracking.lastWarning = now;
+      }
+      return false;
+    }
+
+    // Add current timestamp
+    tracking.timestamps.push(now);
+    return true;
   }
 
   /**
@@ -176,6 +219,7 @@ class GameRoom {
       };
 
       this.gamePlayers.set(player.id, gamePlayer);
+      this.gamePlayersObject[player.id] = gamePlayer;
     });
 
     // Initialize pickups at random positions (avoiding obstacles)
@@ -217,6 +261,15 @@ class GameRoom {
     this.countdownInterval = setInterval(() => {
       count--;
 
+      // Verify player count is still valid during countdown
+      if (this.players.size < CONSTANTS.MIN_PLAYERS) {
+        clearInterval(this.countdownInterval);
+        this.countdownInterval = null;
+        this.state = 'lobby';
+        this.io.to(this.code).emit('countdown-cancelled', { reason: 'Not enough players' });
+        return;
+      }
+
       if (count > 0) {
         this.io.to(this.code).emit('countdown', { count });
       } else if (count === 0) {
@@ -234,6 +287,13 @@ class GameRoom {
    * Start the game (called after countdown)
    */
   startGame() {
+    // Verify player count is still valid
+    if (this.players.size < CONSTANTS.MIN_PLAYERS) {
+      this.state = 'lobby';
+      this.io.to(this.code).emit('countdown-cancelled', { reason: 'Not enough players' });
+      return;
+    }
+
     this.state = 'playing';
 
     const gameStartData = {
@@ -296,7 +356,7 @@ class GameRoom {
       this.projectiles,
       dt,
       CONSTANTS.OBSTACLES,
-      Object.fromEntries(this.gamePlayers),
+      this.gamePlayersObject,
       this.arenaInset
     );
 
@@ -515,12 +575,13 @@ class GameRoom {
     const now = Date.now();
 
     return {
+      seq: this.stateSequence++,
       t: now,
       s: this.state,
       mf: this.muzzleFlashActive,
       time: Math.max(0, Math.ceil(this.timeRemaining)),
       inset: this.arenaInset,
-      p: this.buildPlayersArray(),
+      p: this.buildPlayersArray(now),
       j: this.buildProjectilesArray(),
       k: this.buildPickupsArray(),
       e: this.events,
@@ -529,10 +590,10 @@ class GameRoom {
 
   /**
    * Build players array for state packet
+   * @param {number} now - Current timestamp
    * @returns {Array} Array of player arrays
    */
-  buildPlayersArray() {
-    const now = Date.now();
+  buildPlayersArray(now) {
     const result = [];
 
     for (const player of this.gamePlayers.values()) {
@@ -585,6 +646,11 @@ class GameRoom {
    * @param {Object} inputData - Input data from client
    */
   handleInput(playerId, inputData) {
+    // Rate limiting check - prevent input flooding (DOS protection)
+    if (!this.checkInputRateLimit(playerId)) {
+      return;
+    }
+
     if (this.state !== 'playing') {
       // Log once per player
       if (!this._inputWarned) {
@@ -615,18 +681,21 @@ class GameRoom {
     }
 
     // Update movement input
-    if (inputData.input !== undefined) {
+    if (inputData.input !== undefined && typeof inputData.input === 'object') {
       const input = inputData.input;
-      player.input.up = !!input.up;
-      player.input.down = !!input.down;
-      player.input.left = !!input.left;
-      player.input.right = !!input.right;
-      player.input.sprint = !!input.sprint;
+      player.input.up = input.up === true;
+      player.input.down = input.down === true;
+      player.input.left = input.left === true;
+      player.input.right = input.right === true;
+      player.input.sprint = input.sprint === true;
     }
 
     // Update facing direction
     if (inputData.facing !== undefined) {
-      player.facing = inputData.facing;
+      const facing = parseFloat(inputData.facing);
+      if (Number.isFinite(facing)) {
+        player.facing = facing;
+      }
     }
 
     // Handle flashlight toggle (inside inputData.input)
@@ -779,6 +848,7 @@ class GameRoom {
   resetToLobby() {
     this.state = 'lobby';
     this.gamePlayers.clear();
+    this.gamePlayersObject = {};
     this.projectiles = [];
     this.pickups = [];
     this.events = [];

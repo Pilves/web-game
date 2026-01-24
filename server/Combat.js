@@ -10,6 +10,10 @@
  */
 
 const CONSTANTS = require('./constants');
+const GEOMETRY = require('../shared/geometry.js');
+
+// Import shared geometry functions
+const { rectsCollide } = GEOMETRY;
 
 const {
   PROJECTILE_SPEED,
@@ -27,20 +31,9 @@ const {
 // Maximum projectile lifetime in milliseconds
 const PROJECTILE_LIFETIME = 2000;
 
-/**
- * Check if two axis-aligned bounding boxes collide
- * @param {Object} a - First rectangle { x, y, width, height }
- * @param {Object} b - Second rectangle { x, y, width, height }
- * @returns {boolean} True if rectangles overlap
- */
-function rectsCollide(a, b) {
-  return (
-    a.x < b.x + b.width &&
-    a.x + a.width > b.x &&
-    a.y < b.y + b.height &&
-    a.y + a.height > b.y
-  );
-}
+// Reusable arrays for updateProjectiles to avoid GC pressure
+const _updatedProjectiles = [];
+const _events = [];
 
 /**
  * Get bounding rectangle for a player (centered on position)
@@ -286,8 +279,9 @@ function handleHit(victim, attacker, projectile) {
  * @returns {Object} { updatedProjectiles, events }
  */
 function updateProjectiles(projectiles, dt, obstacles, players, arenaInset = 0) {
-  const updatedProjectiles = [];
-  const events = [];
+  // Reuse arrays by clearing them instead of creating new ones
+  _updatedProjectiles.length = 0;
+  _events.length = 0;
   const now = Date.now();
 
   for (const projectile of projectiles) {
@@ -301,22 +295,38 @@ function updateProjectiles(projectiles, dt, obstacles, players, arenaInset = 0) 
       continue;
     }
 
-    // Check wall collision
-    if (isOutOfBounds(projectile.x, projectile.y, arenaInset)) {
-      // Hit wall, create event
-      events.push({
-        type: 'wall-hit',
-        projectileId: projectile.id,
-        x: projectile.x,
-        y: projectile.y,
-      });
-      continue;
+    // Handle boundaries - wrap around like Snake (except during sudden death)
+    const halfSize = PROJECTILE_SIZE / 2;
+    if (arenaInset === 0) {
+      // Wrap around mode
+      if (projectile.x < -halfSize) {
+        projectile.x = ARENA_WIDTH + halfSize + (projectile.x + halfSize);
+      } else if (projectile.x > ARENA_WIDTH + halfSize) {
+        projectile.x = -halfSize + (projectile.x - ARENA_WIDTH - halfSize);
+      }
+
+      if (projectile.y < -halfSize) {
+        projectile.y = ARENA_HEIGHT + halfSize + (projectile.y + halfSize);
+      } else if (projectile.y > ARENA_HEIGHT + halfSize) {
+        projectile.y = -halfSize + (projectile.y - ARENA_HEIGHT - halfSize);
+      }
+    } else {
+      // During sudden death, projectiles hit walls
+      if (isOutOfBounds(projectile.x, projectile.y, arenaInset)) {
+        _events.push({
+          type: 'wall-hit',
+          projectileId: projectile.id,
+          x: projectile.x,
+          y: projectile.y,
+        });
+        continue;
+      }
     }
 
     // Check obstacle collision
     if (collidesWithObstacle(projectile, obstacles)) {
       // Hit obstacle, create event
-      events.push({
+      _events.push({
         type: 'obstacle-hit',
         projectileId: projectile.id,
         x: projectile.x,
@@ -333,19 +343,19 @@ function updateProjectiles(projectiles, dt, obstacles, players, arenaInset = 0) 
 
       // Handle the hit
       const hitEvent = handleHit(hitPlayer, attacker, projectile);
-      events.push(hitEvent);
+      _events.push(hitEvent);
 
       // Don't add projectile to updated list (it's consumed)
       continue;
     }
 
     // Projectile still active
-    updatedProjectiles.push(projectile);
+    _updatedProjectiles.push(projectile);
   }
 
   return {
-    updatedProjectiles,
-    events,
+    updatedProjectiles: _updatedProjectiles,
+    events: _events,
   };
 }
 

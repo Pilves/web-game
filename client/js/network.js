@@ -7,6 +7,10 @@ export class Network {
     this.connected = false;
     this.inputSequence = 0;
     this._inputSentCount = 0;
+
+    // Store for reconnection
+    this.roomCode = null;
+    this.playerName = null;
   }
 
   // Connect to the game server
@@ -31,6 +35,16 @@ export class Network {
       this.game.onDisconnect();
     });
 
+    // Handle reconnection
+    this.socket.on('reconnect', () => {
+      console.log('[Network] Reconnected');
+      // Try to rejoin previous room if we have roomCode and playerName
+      if (this.roomCode && this.playerName) {
+        console.log('[Network] Attempting to rejoin room:', this.roomCode);
+        this.joinRoom(this.roomCode, this.playerName);
+      }
+    });
+
     // Set up all event handlers
     this.setupHandlers();
   }
@@ -39,6 +53,7 @@ export class Network {
     // Room creation response
     this.socket.on('room-created', (data) => {
       console.log('Room created:', data.code);
+      this.roomCode = data.code;
       this.game.myId = this.socket.id;
       this.game.roomCode = data.code;
       this.game.onRoomCreated(data);
@@ -68,6 +83,12 @@ export class Network {
     this.socket.on('countdown', (data) => {
       console.log('Countdown:', data.count);
       this.game.onCountdown(data.count);
+    });
+
+    // Countdown cancelled (not enough players)
+    this.socket.on('countdown-cancelled', (data) => {
+      console.log('Countdown cancelled:', data.reason);
+      this.game.onCountdownCancelled(data.reason);
     });
 
     // Game has started
@@ -111,13 +132,16 @@ export class Network {
   // Create a new room (host)
   createRoom(name) {
     if (!this.connected) return;
+    this.playerName = name;
     this.socket.emit('create-room', { name });
   }
 
   // Join an existing room
   joinRoom(code, name) {
     if (!this.connected) return;
-    this.socket.emit('join-room', { code: code.toUpperCase(), name });
+    this.roomCode = code.toUpperCase();
+    this.playerName = name;
+    this.socket.emit('join-room', { code: this.roomCode, name });
   }
 
   // Toggle ready state in lobby

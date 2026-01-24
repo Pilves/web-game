@@ -1,41 +1,17 @@
 // Client-side configuration constants
+// SHARED_CONSTANTS is loaded via script tag from /shared/constants.js
+
+// Build CONFIG by spreading shared constants and adding client-only ones
 export const CONFIG = {
-  // Arena
-  ARENA_WIDTH: 1200,
-  ARENA_HEIGHT: 800,
+  // Import all shared constants (loaded globally via script tag)
+  ...(typeof SHARED_CONSTANTS !== 'undefined' ? SHARED_CONSTANTS : {}),
 
-  // Player
-  PLAYER_SIZE: 40,
-  PLAYER_SPEED: 180,
-  PLAYER_SPRINT_SPEED: 280,
+  // Client-only: Combat
+  PICKUP_SIZE: 30,
 
-  // Combat
-  PROJECTILE_SIZE: 20,
-
-  // Vision
-  FLASHLIGHT_RANGE: 200,
-  FLASHLIGHT_ANGLE: 60,  // degrees
-
-  // Networking
+  // Client-only: Networking
   INPUT_SEND_RATE: 60,    // Hz - match physics tick
   INTERPOLATION_DELAY: 50, // ms - time between server updates
-
-  // Visual
-  PLAYER_COLORS: [
-    '#ff6b6b',  // Coral red - P1
-    '#4ecdc4',  // Teal - P2
-    '#ffe66d',  // Gold - P3
-    '#c3aed6',  // Lavender - P4
-  ],
-
-  // Obstacles (must match server and CSS)
-  OBSTACLES: [
-    { x: 80, y: 80, width: 120, height: 80, type: 'bed' },
-    { x: 1000, y: 80, width: 120, height: 80, type: 'bed' },
-    { x: 80, y: 640, width: 120, height: 80, type: 'bed' },
-    { x: 1000, y: 640, width: 120, height: 80, type: 'bed' },
-    { x: 550, y: 350, width: 100, height: 100, type: 'table' },
-  ],
 };
 
 // Default key bindings
@@ -110,7 +86,7 @@ export class ControlsManager {
       'Digit0': '0', 'Digit1': '1', 'Digit2': '2', 'Digit3': '3',
       'Digit4': '4', 'Digit5': '5', 'Digit6': '6', 'Digit7': '7',
       'Digit8': '8', 'Digit9': '9',
-      'ArrowUp': '↑', 'ArrowDown': '↓', 'ArrowLeft': '←', 'ArrowRight': '→',
+      'ArrowUp': '^', 'ArrowDown': 'v', 'ArrowLeft': '<', 'ArrowRight': '>',
       'Space': 'Space', 'ShiftLeft': 'L-Shift', 'ShiftRight': 'R-Shift',
       'ControlLeft': 'L-Ctrl', 'ControlRight': 'R-Ctrl',
       'AltLeft': 'L-Alt', 'AltRight': 'R-Alt',

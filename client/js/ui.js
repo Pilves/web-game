@@ -45,13 +45,35 @@ export class UI {
         const isHost = this.game.isHost;
         const canKick = isHost && player.id !== this.game.myId;
 
-        item.innerHTML = `
-          <span class="player-color" style="background: ${player.color}"></span>
-          <span class="player-name">${player.name}</span>
-          <span class="player-status">${player.ready ? 'Ready' : 'Not Ready'}</span>
-          ${player.id === lobbyData.host ? '<span class="host-badge">HOST</span>' : ''}
-          ${canKick ? `<button class="kick-btn" data-id="${player.id}">Kick</button>` : ''}
-        `;
+        const colorSpan = document.createElement('span');
+        colorSpan.className = 'player-color';
+        colorSpan.style.background = player.color;
+        item.appendChild(colorSpan);
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'player-name';
+        nameSpan.textContent = player.name;
+        item.appendChild(nameSpan);
+
+        const statusSpan = document.createElement('span');
+        statusSpan.className = 'player-status';
+        statusSpan.textContent = player.ready ? 'Ready' : 'Not Ready';
+        item.appendChild(statusSpan);
+
+        if (player.id === lobbyData.host) {
+          const hostBadge = document.createElement('span');
+          hostBadge.className = 'host-badge';
+          hostBadge.textContent = 'HOST';
+          item.appendChild(hostBadge);
+        }
+
+        if (canKick) {
+          const kickBtn = document.createElement('button');
+          kickBtn.className = 'kick-btn';
+          kickBtn.dataset.id = player.id;
+          kickBtn.textContent = 'Kick';
+          item.appendChild(kickBtn);
+        }
 
         playersList.appendChild(item);
       }
@@ -168,11 +190,20 @@ export class UI {
       const name = playerInfo?.name || 'Player';
       const color = playerInfo?.color || '#ffffff';
 
-      item.innerHTML = `
-        <span class="player-color" style="background: ${color}"></span>
-        <span class="player-name">${name}</span>
-        <span class="player-hearts">${'\u2665'.repeat(Math.max(0, hearts))}</span>
-      `;
+      const colorSpan = document.createElement('span');
+      colorSpan.className = 'player-color';
+      colorSpan.style.background = color;
+      item.appendChild(colorSpan);
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'player-name';
+      nameSpan.textContent = name;
+      item.appendChild(nameSpan);
+
+      const heartsSpan = document.createElement('span');
+      heartsSpan.className = 'player-hearts';
+      heartsSpan.textContent = '\u2665'.repeat(Math.max(0, hearts));
+      item.appendChild(heartsSpan);
 
       scoreboard.appendChild(item);
     }
@@ -230,11 +261,20 @@ export class UI {
         if (score.id === this.game.myId) row.classList.add('self');
         if (score.id === winner) row.classList.add('winner');
 
-        row.innerHTML = `
-          <span class="player-name">${score.name}</span>
-          <span class="kills">${score.kills} kills</span>
-          <span class="deaths">${score.deaths} deaths</span>
-        `;
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'player-name';
+        nameSpan.textContent = score.name;
+        row.appendChild(nameSpan);
+
+        const killsSpan = document.createElement('span');
+        killsSpan.className = 'kills';
+        killsSpan.textContent = `${score.kills} kills`;
+        row.appendChild(killsSpan);
+
+        const deathsSpan = document.createElement('span');
+        deathsSpan.className = 'deaths';
+        deathsSpan.textContent = `${score.deaths} deaths`;
+        row.appendChild(deathsSpan);
 
         finalScoreboard.appendChild(row);
       }

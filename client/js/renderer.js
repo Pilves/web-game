@@ -245,7 +245,7 @@ export class Renderer {
       // Show/hide based on active state
       if (active) {
         el.style.display = 'block';
-        el.style.transform = `translate3d(${x - 15}px, ${y - 15}px, 0)`;
+        el.style.transform = `translate3d(${x - CONFIG.PICKUP_SIZE / 2}px, ${y - CONFIG.PICKUP_SIZE / 2}px, 0)`;
         el.style.zIndex = Math.floor(y);
       } else {
         el.style.display = 'none';
@@ -301,5 +301,34 @@ export class Renderer {
       el.remove();
       delete this.playerElements[id];
     }
+  }
+
+  // Clear all pickup elements
+  clearPickups() {
+    const pickups = this.arena.querySelectorAll('[id^="pickup-"]');
+    pickups.forEach(el => el.remove());
+  }
+
+  // Clear all rendered elements (on game end)
+  clear() {
+    // Clear all players
+    for (const id of Object.keys(this.playerElements)) {
+      this.cleanupPlayer(id);
+    }
+
+    // Clear all pickups
+    this.clearPickups();
+
+    // Hide all projectiles
+    this.projectilePool.forEach(p => {
+      p.el.style.display = 'none';
+      p.active = false;
+      p.id = null;
+    });
+
+    // Reset all ripples
+    this.ripplePool.forEach(el => {
+      el.classList.remove('active');
+    });
   }
 }

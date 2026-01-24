@@ -4,6 +4,9 @@ export class Effects {
     this.arena = null;
     this.ripplePool = [];
     this.rippleIndex = 0;
+    this.flashPool = [];
+    this.flashIndex = 0;
+    this.pendingTimeouts = [];
     this.initialized = false;
   }
 
@@ -17,6 +20,15 @@ export class Effects {
       el.className = 'sound-ripple';
       this.arena.appendChild(el);
       this.ripplePool.push(el);
+    }
+
+    // Pre-allocate impact flash elements
+    for (let i = 0; i < 10; i++) {
+      const el = document.createElement('div');
+      el.className = 'impact-flash';
+      el.style.display = 'none';
+      this.arena.appendChild(el);
+      this.flashPool.push(el);
     }
 
     this.initialized = true;
@@ -36,9 +48,11 @@ export class Effects {
     el.className = `sound-ripple active ${type}`;
 
     // Remove active class after animation
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       el.classList.remove('active');
+      this.removeTimeout(timeoutId);
     }, 500);
+    this.pendingTimeouts.push(timeoutId);
   }
 
   // Trigger muzzle flash (whole arena lights up briefly)
@@ -46,27 +60,34 @@ export class Effects {
     if (!this.arena) return;
 
     this.arena.classList.add('muzzle-flash');
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       this.arena.classList.remove('muzzle-flash');
+      this.removeTimeout(timeoutId);
     }, 100);
+    this.pendingTimeouts.push(timeoutId);
   }
 
-  // Show impact flash at position
+  // Show impact flash at position (using object pool)
   showImpactFlash(x, y) {
-    if (!this.arena) return;
+    if (!this.arena || this.flashPool.length === 0) return;
 
-    const el = document.createElement('div');
-    el.className = 'impact-flash';
+    // Get next flash element from pool (circular)
+    const el = this.flashPool[this.flashIndex];
+    this.flashIndex = (this.flashIndex + 1) % this.flashPool.length;
+
+    // Position and show
     el.style.left = `${x - 30}px`;
     el.style.top = `${y - 30}px`;
-    this.arena.appendChild(el);
+    el.style.display = 'block';
+    el.classList.add('active');
 
-    // Remove after animation
-    setTimeout(() => {
-      if (el.parentNode) {
-        el.remove();
-      }
+    // Hide after animation
+    const timeoutId = setTimeout(() => {
+      el.style.display = 'none';
+      el.classList.remove('active');
+      this.removeTimeout(timeoutId);
     }, 150);
+    this.pendingTimeouts.push(timeoutId);
   }
 
   // Trigger screen shake
@@ -74,9 +95,11 @@ export class Effects {
     if (!this.arena) return;
 
     this.arena.classList.add('shake');
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       this.arena.classList.remove('shake');
+      this.removeTimeout(timeoutId);
     }, 200);
+    this.pendingTimeouts.push(timeoutId);
   }
 
   // Show death effect for a player element
@@ -86,10 +109,12 @@ export class Effects {
     playerElement.classList.add('dying');
 
     // Remove after animation
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       playerElement.classList.remove('dying');
       playerElement.style.display = 'none';
+      this.removeTimeout(timeoutId);
     }, 500);
+    this.pendingTimeouts.push(timeoutId);
   }
 
   // Set invincibility effect on player
@@ -103,9 +128,21 @@ export class Effects {
     }
   }
 
+  // Helper to remove timeout ID from tracking array
+  removeTimeout(timeoutId) {
+    const index = this.pendingTimeouts.indexOf(timeoutId);
+    if (index > -1) {
+      this.pendingTimeouts.splice(index, 1);
+    }
+  }
+
   // Clear all effects (on game end)
   clear() {
     if (!this.arena) return;
+
+    // Clear all pending timeouts to prevent memory leaks
+    this.pendingTimeouts.forEach(id => clearTimeout(id));
+    this.pendingTimeouts = [];
 
     this.arena.classList.remove('muzzle-flash', 'shake');
 
@@ -114,9 +151,11 @@ export class Effects {
       el.classList.remove('active');
     });
 
-    // Remove any lingering impact flashes
-    const flashes = this.arena.querySelectorAll('.impact-flash');
-    flashes.forEach(el => el.remove());
+    // Reset all pooled impact flashes
+    this.flashPool.forEach(el => {
+      el.style.display = 'none';
+      el.classList.remove('active');
+    });
   }
 }
 

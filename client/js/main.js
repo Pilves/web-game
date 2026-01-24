@@ -44,9 +44,16 @@ class Game {
     this.lobbyData = null;
     this.isHost = false;
 
+    // Network sequence tracking
+    this.lastServerSeq = -1;
+
     // Timing
     this.lastFrameTime = 0;
     this.running = false;
+
+    // Input throttling (20Hz = 50ms)
+    this.lastInputSendTime = 0;
+    this.inputSendInterval = 50;
 
     // Audio context resume flag
     this.audioInitialized = false;
@@ -85,7 +92,8 @@ class Game {
     this.setupUIListeners();
 
     // Show menu screen
-    this.showScreen('menu');
+    this.ui.showScreen('menu');
+    this.state = 'menu';
 
     // Start game loop
     this.running = true;
@@ -112,9 +120,13 @@ class Game {
       // Update interpolation timer
       this.stateTime += cappedDt * 1000;
 
-      // Poll input and send to server
+      // Poll input and send to server (throttled to 20Hz)
       const input = this.input.getState();
-      this.network.sendInput(input);
+      const now = performance.now();
+      if (now - this.lastInputSendTime >= this.inputSendInterval) {
+        this.network.sendInput(input);
+        this.lastInputSendTime = now;
+      }
 
       if (shouldLog) {
         console.log('[Game] Playing state - Input:', {
@@ -147,11 +159,21 @@ class Game {
 
   // Handle incoming server state
   onServerState(state) {
+    // Check sequence number to ignore out-of-order packets
+    if (state.seq !== undefined && state.seq <= this.lastServerSeq) {
+      // Out of order packet, ignore
+      return;
+    }
+    if (state.seq !== undefined) {
+      this.lastServerSeq = state.seq;
+    }
+
     // Debug: log first state and every 20th after
     if (!this._stateCount) this._stateCount = 0;
     this._stateCount++;
     if (this._stateCount === 1 || this._stateCount % 20 === 0) {
       console.log('[Game] onServerState #' + this._stateCount + ':', {
+        seq: state.seq,
         gameState: state.s,
         playerCount: state.p?.length,
         players: state.p?.map(p => ({ id: p[0].substring(0, 8), x: p[1], y: p[2] })),
@@ -177,7 +199,7 @@ class Game {
     }
 
     // Update HUD
-    this.updateHUD(state);
+    this.ui.updateHUD(state);
   }
 
   // Handle game events from server
@@ -322,10 +344,22 @@ class Game {
     // Update facing direction
     this.localPlayer.facing = input.facing;
 
-    // Clamp to arena bounds
+    // Wrap around arena bounds like Snake
     const halfSize = CONFIG.PLAYER_SIZE / 2;
-    this.localPlayer.x = Math.max(halfSize, Math.min(CONFIG.ARENA_WIDTH - halfSize, this.localPlayer.x));
-    this.localPlayer.y = Math.max(halfSize, Math.min(CONFIG.ARENA_HEIGHT - halfSize, this.localPlayer.y));
+    const arenaWidth = CONFIG.ARENA_WIDTH;
+    const arenaHeight = CONFIG.ARENA_HEIGHT;
+
+    if (this.localPlayer.x < -halfSize) {
+      this.localPlayer.x = arenaWidth + halfSize + (this.localPlayer.x + halfSize);
+    } else if (this.localPlayer.x > arenaWidth + halfSize) {
+      this.localPlayer.x = -halfSize + (this.localPlayer.x - arenaWidth - halfSize);
+    }
+
+    if (this.localPlayer.y < -halfSize) {
+      this.localPlayer.y = arenaHeight + halfSize + (this.localPlayer.y + halfSize);
+    } else if (this.localPlayer.y > arenaHeight + halfSize) {
+      this.localPlayer.y = -halfSize + (this.localPlayer.y - arenaHeight - halfSize);
+    }
 
     // Simple obstacle collision
     for (const obstacle of CONFIG.OBSTACLES) {
@@ -426,75 +460,12 @@ class Game {
     }
   }
 
-  // Update HUD elements
-  updateHUD(state) {
-    if (!state) return;
-
-    // Find local player data
-    const player = this.findPlayerInState(state, this.myId);
-    if (!player) return;
-
-    // Update hearts display
-    const heartsDisplay = document.getElementById('hearts-display');
-    if (heartsDisplay) {
-      heartsDisplay.textContent = '\u2665'.repeat(Math.max(0, player.hearts));
-    }
-
-    // Update ammo display
-    const ammoDisplay = document.getElementById('ammo-display');
-    if (ammoDisplay) {
-      ammoDisplay.textContent = player.hasAmmo ? '\u25CF' : '\u25CB';
-      ammoDisplay.classList.toggle('has-ammo', player.hasAmmo);
-    }
-
-    // Update timer
-    const timerDisplay = document.getElementById('timer-display');
-    if (timerDisplay && state.time !== undefined) {
-      const minutes = Math.floor(state.time / 60);
-      const seconds = state.time % 60;
-      timerDisplay.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-    }
-
-    // Update scoreboard
-    this.updateScoreboard(state);
-  }
-
-  // Update bottom scoreboard
-  updateScoreboard(state) {
-    const scoreboard = document.getElementById('scoreboard');
-    if (!scoreboard || !state.p) return;
-
-    // Clear existing
-    scoreboard.innerHTML = '';
-
-    // Add each player
-    for (const pData of state.p) {
-      const [id, , , , , hearts] = pData;
-      const playerInfo = this.lobbyData?.players?.find(p => p.id === id);
-
-      const item = document.createElement('div');
-      item.className = 'scoreboard-item';
-      if (id === this.myId) item.classList.add('self');
-      if (hearts <= 0) item.classList.add('eliminated');
-
-      const name = playerInfo?.name || 'Player';
-      const color = playerInfo?.color || '#ffffff';
-
-      item.innerHTML = `
-        <span class="player-color" style="background: ${color}"></span>
-        <span class="player-name">${name}</span>
-        <span class="player-hearts">${'\u2665'.repeat(Math.max(0, hearts))}</span>
-      `;
-
-      scoreboard.appendChild(item);
-    }
-  }
-
   // --- Network Event Handlers ---
 
   onRoomCreated(data) {
     this.isHost = true;
-    this.showScreen('lobby');
+    this.ui.showScreen('lobby');
+    this.state = 'lobby';
     this.updateRoomCodeDisplay(data.code);
   }
 
@@ -511,17 +482,22 @@ class Game {
 
     // Show lobby if not already there
     if (this.state === 'menu') {
-      this.showScreen('lobby');
+      this.ui.showScreen('lobby');
+      this.state = 'lobby';
     }
 
-    this.updateLobbyUI(data);
+    this.ui.updateLobby(data);
   }
 
   onKicked() {
     this.roomCode = null;
     this.lobbyData = null;
     this.isHost = false;
-    this.showScreen('menu');
+
+    // Network sequence tracking
+    this.lastServerSeq = -1;
+    this.ui.showScreen('menu');
+    this.state = 'menu';
 
     const errorEl = document.getElementById('menu-error');
     if (errorEl) {
@@ -532,7 +508,7 @@ class Game {
   onCountdown(count) {
     console.log('[Game] onCountdown:', count);
     this.state = 'countdown';
-    this.showScreen('game');
+    this.ui.showScreen('game');
 
     const overlay = document.getElementById('countdown-overlay');
     const number = document.getElementById('countdown-number');
@@ -563,6 +539,7 @@ class Game {
     });
 
     this.state = 'playing';
+    this.lastServerSeq = -1; // Reset sequence for new game
     console.log('[Game] State set to playing, myId:', this.myId);
 
     // Hide countdown overlay
@@ -599,6 +576,21 @@ class Game {
     console.log('[Game] Game started. localPlayer:', this.localPlayer);
   }
 
+  onCountdownCancelled(reason) {
+    console.log('[Game] Countdown cancelled:', reason);
+    this.state = 'lobby';
+    this.showScreen('lobby');
+
+    // Hide countdown overlay
+    const overlay = document.getElementById('countdown-overlay');
+    if (overlay) {
+      overlay.style.display = 'none';
+    }
+
+    // Show notification
+    this.showNotification(reason || 'Countdown cancelled');
+  }
+
   onGamePaused(pausedBy) {
     this.state = 'paused';
 
@@ -631,7 +623,7 @@ class Game {
 
   onGameOver(data) {
     this.state = 'gameover';
-    this.showScreen('gameover');
+    this.ui.showScreen('gameover');
 
     // Update winner text
     const winnerText = document.getElementById('winner-text');
@@ -666,11 +658,20 @@ class Game {
         if (score.id === this.myId) row.classList.add('self');
         if (score.id === data.winner) row.classList.add('winner');
 
-        row.innerHTML = `
-          <span class="player-name">${score.name}</span>
-          <span class="kills">${score.kills} kills</span>
-          <span class="deaths">${score.deaths} deaths</span>
-        `;
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'player-name';
+        nameSpan.textContent = score.name;
+        row.appendChild(nameSpan);
+
+        const killsSpan = document.createElement('span');
+        killsSpan.className = 'kills';
+        killsSpan.textContent = `${score.kills} kills`;
+        row.appendChild(killsSpan);
+
+        const deathsSpan = document.createElement('span');
+        deathsSpan.className = 'deaths';
+        deathsSpan.textContent = `${score.deaths} deaths`;
+        row.appendChild(deathsSpan);
 
         finalScoreboard.appendChild(row);
       }
@@ -681,13 +682,14 @@ class Game {
   }
 
   onDisconnect() {
-    this.showScreen('menu');
+    this.ui.showScreen('menu');
     this.state = 'menu';
     this.roomCode = null;
     this.lobbyData = null;
     this.localPlayer = null;
     this.serverState = null;
     this.prevServerState = null;
+    this.lastServerSeq = -1;
 
     const errorEl = document.getElementById('menu-error');
     if (errorEl) {
@@ -697,99 +699,10 @@ class Game {
 
   // --- UI Helpers ---
 
-  showScreen(screenName) {
-    console.log('[Game] showScreen:', screenName, '| current state:', this.state);
-    this.state = screenName === 'game' ? this.state : screenName;
-
-    // Hide all screens
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-
-    // Show target screen
-    const screen = document.getElementById(`${screenName}-screen`);
-    if (screen) {
-      screen.classList.add('active');
-      console.log('[Game] Screen activated:', screenName);
-    } else {
-      console.error('[Game] ERROR: Screen not found:', `${screenName}-screen`);
-    }
-  }
-
   updateRoomCodeDisplay(code) {
     const display = document.getElementById('room-code-display');
     if (display) {
       display.textContent = code;
-    }
-  }
-
-  updateLobbyUI(data) {
-    this.updateRoomCodeDisplay(data.code);
-
-    // Update players list
-    const playersList = document.getElementById('players-list');
-    if (playersList) {
-      playersList.innerHTML = '';
-
-      for (const player of data.players) {
-        const item = document.createElement('div');
-        item.className = 'player-item';
-        if (player.ready) item.classList.add('ready');
-        if (player.id === this.myId) item.classList.add('self');
-        if (player.id === data.host) item.classList.add('host');
-
-        item.innerHTML = `
-          <span class="player-color" style="background: ${player.color}"></span>
-          <span class="player-name">${player.name}</span>
-          <span class="player-status">${player.ready ? 'Ready' : 'Not Ready'}</span>
-          ${player.id === data.host ? '<span class="host-badge">HOST</span>' : ''}
-          ${this.isHost && player.id !== this.myId ? `<button class="kick-btn" data-id="${player.id}">Kick</button>` : ''}
-        `;
-
-        playersList.appendChild(item);
-      }
-    }
-
-    // Update settings (host only can edit)
-    const livesInput = document.getElementById('lives-setting');
-    const timeInput = document.getElementById('time-setting');
-    const settingsDiv = document.getElementById('lobby-settings');
-
-    if (settingsDiv) {
-      settingsDiv.style.display = this.isHost ? 'block' : 'none';
-    }
-
-    if (livesInput) {
-      livesInput.value = data.settings.lives;
-      livesInput.disabled = !this.isHost;
-    }
-
-    if (timeInput) {
-      timeInput.value = data.settings.timeLimit;
-      timeInput.disabled = !this.isHost;
-    }
-
-    // Update start button (host only, enabled when all non-host ready and 1+ players for solo)
-    const startBtn = document.getElementById('start-btn');
-    if (startBtn) {
-      const nonHostPlayers = data.players.filter(p => p.id !== data.host);
-      const allNonHostReady = nonHostPlayers.every(p => p.ready);
-      const enoughPlayers = data.players.length >= 1; // Allow solo
-
-      startBtn.disabled = !this.isHost || !allNonHostReady || !enoughPlayers;
-      startBtn.style.display = this.isHost ? 'inline-block' : 'none';
-    }
-
-    // Update ready button text
-    const readyBtn = document.getElementById('ready-btn');
-    if (readyBtn) {
-      const myPlayer = data.players.find(p => p.id === this.myId);
-      readyBtn.textContent = myPlayer?.ready ? 'Not Ready' : 'Ready';
-    }
-
-    // Update lobby status
-    const statusEl = document.getElementById('lobby-status');
-    if (statusEl) {
-      const readyCount = data.players.filter(p => p.ready).length;
-      statusEl.textContent = `${readyCount}/${data.players.length} players ready`;
     }
   }
 
@@ -827,12 +740,15 @@ class Game {
         await this.audio.init();
         this.audio.resume();
         this.audioInitialized = true;
+        // Remove listeners after init to prevent memory leaks
+        document.removeEventListener('click', resumeAudio);
+        document.removeEventListener('keydown', resumeAudio);
       }
     };
 
     // Set up audio resume on any interaction
-    document.addEventListener('click', resumeAudio, { once: false });
-    document.addEventListener('keydown', resumeAudio, { once: false });
+    document.addEventListener('click', resumeAudio);
+    document.addEventListener('keydown', resumeAudio);
 
     // Set up controls menu
     this.setupControlsMenu();
