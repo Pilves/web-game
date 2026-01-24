@@ -242,7 +242,7 @@ class GameRoom {
         respawnAt: 0,
       });
     }
-    console.log(`[GameRoom ${this.code}] All pickups:`, this.pickups);
+    console.log(`[GameRoom ${this.code}] Pickups spawned:`, this.pickups.map(p => `(${Math.round(p.x)}, ${Math.round(p.y)})`).join(', '));
 
     // Reset game state
     this.projectiles = [];
@@ -421,6 +421,7 @@ class GameRoom {
         };
 
         if (Physics.rectsCollide(playerRect, pickupRect)) {
+          console.log(`[GameRoom ${this.code}] Player ${player.name} picked up pillow ${pickup.id} at (${pickup.x}, ${pickup.y})`);
           // Player picks up the pillow
           player.hasAmmo = true;
           pickup.active = false;
