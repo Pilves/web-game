@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <!-- Top-down player character for LIGHTS OUT game -->
+  <!-- Body circle - neutral gray that can be tinted with CSS filters -->
+  <circle cx="20" cy="20" r="14" fill="#888888" stroke="#666666" stroke-width="2"/>
+
+  <!-- Direction indicator - triangle/wedge pointing up (north) -->
+  <polygon points="20,4 26,14 14,14" fill="#aaaaaa" stroke="#666666" stroke-width="1"/>
+
+  <!-- Inner highlight for depth -->
+  <circle cx="18" cy="18" r="8" fill="#999999" opacity="0.5"/>
+</svg>

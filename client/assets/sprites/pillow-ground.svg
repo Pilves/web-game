@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- Pillow pickup on ground with glow effect for visibility in darkness -->
+  <defs>
+    <!-- Glow filter for visibility in dark -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Outer glow ring - visible in darkness -->
+  <ellipse cx="10" cy="10" rx="9" ry="7" fill="rgba(255, 255, 255, 0.15)" filter="url(#glow)"/>
+
+  <!-- Main pillow body - rounded rectangle with cream/white color -->
+  <rect x="2" y="5" width="16" height="10" rx="4" ry="4" fill="#f5f0e6" stroke="#d4cfc5" stroke-width="1"/>
+
+  <!-- 3D highlight on top -->
+  <rect x="4" y="6" width="12" height="4" rx="2" ry="2" fill="#fffef8" opacity="0.7"/>
+
+  <!-- Shadow on bottom for depth -->
+  <rect x="4" y="11" width="12" height="2" rx="1" ry="1" fill="#c9c4ba" opacity="0.5"/>
+
+  <!-- Pillow creases/details -->
+  <line x1="7" y1="7" x2="7" y2="13" stroke="#e8e3d9" stroke-width="0.5"/>
+  <line x1="13" y1="7" x2="13" y2="13" stroke="#e8e3d9" stroke-width="0.5"/>
+
+  <!-- Subtle sparkle for pickup indication -->
+  <circle cx="5" cy="7" r="0.8" fill="#ffffff" opacity="0.8"/>
+  <circle cx="15" cy="8" r="0.5" fill="#ffffff" opacity="0.6"/>
+</svg>

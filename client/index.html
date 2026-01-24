@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LIGHTS OUT</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="css/reset.css">
+  <link rel="stylesheet" href="css/variables.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/lobby.css">
+  <link rel="stylesheet" href="css/game.css">
+  <link rel="stylesheet" href="css/hud.css">
+  <link rel="stylesheet" href="css/effects.css">
+</head>
+<body>
+  <!-- Menu Screen -->
+  <div id="menu-screen" class="screen active">
+    <div class="menu-container">
+      <h1 class="game-title">LIGHTS OUT</h1>
+      <p class="tagline">"In the dark, everyone's a target."</p>
+
+      <div class="menu-form">
+        <input type="text" id="player-name" placeholder="Enter your name" maxlength="12" autocomplete="off">
+
+        <div class="menu-buttons">
+          <button id="create-room-btn" class="btn btn-primary">Create Room</button>
+          <div class="join-room-group">
+            <input type="text" id="room-code-input" placeholder="CODE" maxlength="4" autocomplete="off">
+            <button id="join-room-btn" class="btn btn-secondary">Join</button>
+          </div>
+        </div>
+      </div>
+
+      <p id="menu-error" class="error-message"></p>
+
+      <button id="controls-btn" class="btn btn-secondary btn-small">Controls</button>
+    </div>
+  </div>
+
+  <!-- Controls Modal -->
+  <div id="controls-modal" class="modal">
+    <div class="modal-content">
+      <h2>Controls</h2>
+      <p class="modal-subtitle">Click a key to rebind. Press Escape to cancel.</p>
+
+      <div class="controls-list">
+        <div class="control-row" data-action="up">
+          <span class="control-label">Move Up</span>
+          <div class="control-keys"></div>
+        </div>
+        <div class="control-row" data-action="down">
+          <span class="control-label">Move Down</span>
+          <div class="control-keys"></div>
+        </div>
+        <div class="control-row" data-action="left">
+          <span class="control-label">Move Left</span>
+          <div class="control-keys"></div>
+        </div>
+        <div class="control-row" data-action="right">
+          <span class="control-label">Move Right</span>
+          <div class="control-keys"></div>
+        </div>
+        <div class="control-row" data-action="sprint">
+          <span class="control-label">Sprint</span>
+          <div class="control-keys"></div>
+        </div>
+        <div class="control-row" data-action="throw">
+          <span class="control-label">Throw Pillow</span>
+          <div class="control-keys"></div>
+        </div>
+        <div class="control-row" data-action="flashlight">
+          <span class="control-label">Toggle Flashlight</span>
+          <div class="control-keys"></div>
+        </div>
+        <div class="control-row" data-action="pause">
+          <span class="control-label">Pause</span>
+          <div class="control-keys"></div>
+        </div>
+      </div>
+
+      <div class="modal-buttons">
+        <button id="reset-controls-btn" class="btn btn-danger">Reset to Default</button>
+        <button id="close-controls-btn" class="btn btn-primary">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lobby Screen -->
+  <div id="lobby-screen" class="screen">
+    <div class="lobby-container">
+      <div class="lobby-header">
+        <h2>Room Code:</h2>
+        <div id="room-code-display" class="room-code">----</div>
+        <button id="copy-code-btn" class="btn btn-small">Copy</button>
+      </div>
+
+      <div class="players-list" id="players-list">
+        <!-- Player items will be inserted here -->
+      </div>
+
+      <div class="lobby-settings" id="lobby-settings">
+        <label>
+          Lives: <input type="number" id="lives-setting" min="1" max="5" value="3">
+        </label>
+        <label>
+          Time (sec): <input type="number" id="time-setting" min="60" max="300" step="30" value="180">
+        </label>
+      </div>
+
+      <div class="lobby-buttons">
+        <button id="ready-btn" class="btn btn-primary">Ready</button>
+        <button id="start-btn" class="btn btn-success" disabled>Start Game</button>
+        <button id="leave-btn" class="btn btn-danger">Leave</button>
+      </div>
+
+      <p id="lobby-status" class="status-message"></p>
+    </div>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="game-screen" class="screen">
+    <!-- HUD Top -->
+    <div id="hud-top">
+      <div id="hud-left">
+        <div id="hearts-display">♥♥♥</div>
+        <div id="ammo-display">●</div>
+        <div id="player-name-display"></div>
+      </div>
+      <div id="hud-right">
+        <div id="timer-display">3:00</div>
+        <button id="pause-btn" class="btn btn-small">≡</button>
+      </div>
+    </div>
+
+    <!-- Arena -->
+    <div id="arena-container">
+      <div id="arena">
+        <!-- Obstacles -->
+        <div class="obstacle bed" id="bed-tl"></div>
+        <div class="obstacle bed" id="bed-tr"></div>
+        <div class="obstacle bed" id="bed-bl"></div>
+        <div class="obstacle bed" id="bed-br"></div>
+        <div class="obstacle table" id="table-center"></div>
+
+        <!-- Players and projectiles will be added dynamically -->
+      </div>
+    </div>
+
+    <!-- HUD Bottom - Scoreboard -->
+    <div id="hud-bottom">
+      <div id="scoreboard">
+        <!-- Player status items will be inserted here -->
+      </div>
+    </div>
+
+    <!-- Countdown Overlay -->
+    <div id="countdown-overlay" class="overlay">
+      <div id="countdown-number">3</div>
+    </div>
+
+    <!-- Pause Menu Overlay -->
+    <div id="pause-overlay" class="overlay">
+      <div class="pause-menu">
+        <h2>Game Paused</h2>
+        <p id="paused-by-text">Paused by: Player</p>
+        <button id="resume-btn" class="btn btn-primary">Resume</button>
+        <button id="quit-btn" class="btn btn-danger">Quit to Lobby</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Over Screen -->
+  <div id="gameover-screen" class="screen">
+    <div class="gameover-container">
+      <h1 id="winner-text">Player Wins!</h1>
+
+      <div id="final-scoreboard" class="scoreboard-table">
+        <!-- Final scores will be inserted here -->
+      </div>
+
+      <div class="gameover-buttons">
+        <button id="play-again-btn" class="btn btn-primary">Play Again</button>
+      </div>
+
+      <p id="auto-return-text" class="status-message">Returning to lobby in 30s...</p>
+    </div>
+  </div>
+
+  <!-- Notifications -->
+  <div id="notifications"></div>
+
+  <!-- Scripts -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,406 @@
+/* ==========================================================================
+   Game - Arena styling, players, obstacles, projectiles, pickups
+   ========================================================================== */
+
+/* ==========================================================================
+   Game Screen
+   ========================================================================== */
+
+/* Note: display is controlled by .screen/.screen.active in layout.css */
+#game-screen {
+  background: var(--dark-bg);
+  flex-direction: column;
+  padding: var(--spacing-md);
+  gap: var(--spacing-md);
+}
+
+/* ==========================================================================
+   Arena Container
+   ========================================================================== */
+
+#arena-container {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   Arena
+   ========================================================================== */
+
+#arena {
+  position: relative;
+  width: var(--arena-width);
+  height: var(--arena-height);
+  background: var(--dark-bg);
+  border: 2px solid var(--panel-border);
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+  transform-origin: center center;
+  will-change: transform;
+  z-index: var(--z-arena);
+}
+
+/* Muzzle flash - lights up the arena */
+#arena.muzzle-flash {
+  background: var(--lit-bg);
+}
+
+/* ==========================================================================
+   Players
+   ========================================================================== */
+
+.player {
+  position: absolute;
+  width: var(--player-size);
+  height: var(--player-size);
+  opacity: 0;
+  transition: opacity 0.1s;
+  will-change: transform, opacity;
+  z-index: var(--z-players);
+  pointer-events: none;
+}
+
+/* Self player is always visible */
+.player.self {
+  opacity: 1;
+}
+
+/* Players lit by flashlight */
+.player.visible {
+  opacity: 1;
+}
+
+/* Muzzle flash reveals all players */
+#arena.muzzle-flash .player {
+  opacity: 1;
+}
+
+/* Player body (the actual character visual) */
+.player-body {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--border-radius-full);
+  background: currentColor;
+  position: relative;
+  transition: box-shadow var(--transition-fast);
+}
+
+/* Self glow effect */
+.player.self .player-body {
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+}
+
+/* Direction indicator */
+.player-direction {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: var(--border-radius-full);
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+}
+
+/* Player name tag */
+.player-name-tag {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--font-size-xs);
+  color: var(--text-primary);
+  white-space: nowrap;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+}
+
+.player.visible .player-name-tag,
+.player.self .player-name-tag {
+  opacity: 1;
+}
+
+/* Dead player */
+.player.dead {
+  opacity: 0.3 !important;
+}
+
+.player.dead .player-body {
+  background: var(--text-muted) !important;
+  box-shadow: none !important;
+}
+
+/* Stunned player */
+.player.stunned .player-body {
+  animation: stun-wobble 0.1s ease-in-out infinite alternate;
+}
+
+@keyframes stun-wobble {
+  from { transform: rotate(-5deg); }
+  to { transform: rotate(5deg); }
+}
+
+/* ==========================================================================
+   Flashlight Cone
+   ========================================================================== */
+
+.flashlight-cone {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-left: var(--flashlight-range) solid var(--flashlight-color);
+  border-top: 100px solid transparent;
+  border-bottom: 100px solid transparent;
+  transform-origin: 0 50%;
+  left: 20px;
+  top: -80px;
+  display: none;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Show flashlight cone when active */
+.player.flashlight-on .flashlight-cone {
+  display: block;
+}
+
+/* Flashlight flicker when running low */
+.player.flashlight-flickering .flashlight-cone {
+  animation: flashlight-flicker 0.15s ease-in-out infinite;
+}
+
+@keyframes flashlight-flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ==========================================================================
+   Obstacles
+   ========================================================================== */
+
+.obstacle {
+  position: absolute;
+  background: #2a2a35;
+  border: 2px solid #3a3a45;
+  border-radius: var(--border-radius-sm);
+  z-index: var(--z-obstacles);
+}
+
+/* Bed obstacles */
+.obstacle.bed {
+  width: var(--bed-width);
+  height: var(--bed-height);
+}
+
+/* Positioned beds - corners */
+#bed-tl {
+  left: 80px;
+  top: 80px;
+}
+
+#bed-tr {
+  right: 80px;
+  top: 80px;
+}
+
+#bed-bl {
+  left: 80px;
+  bottom: 80px;
+}
+
+#bed-br {
+  right: 80px;
+  bottom: 80px;
+}
+
+/* Center table */
+.obstacle.table {
+  width: var(--table-size);
+  height: var(--table-size);
+  border-radius: var(--border-radius-md);
+}
+
+#table-center {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Obstacle visible state during muzzle flash */
+#arena.muzzle-flash .obstacle {
+  background: #35353f;
+  border-color: #454550;
+}
+
+/* ==========================================================================
+   Projectiles (Pillows)
+   ========================================================================== */
+
+.projectile {
+  position: absolute;
+  width: var(--projectile-size);
+  height: var(--projectile-size);
+  background: #ffffff;
+  border-radius: var(--border-radius-sm);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  z-index: var(--z-projectiles);
+  will-change: transform;
+  pointer-events: none;
+}
+
+/* Projectile always visible (creates light trail) */
+.projectile {
+  opacity: 1;
+}
+
+/* Projectile trail effect */
+.projectile::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: inherit;
+  border-radius: inherit;
+  opacity: 0.3;
+  transform: scale(0.8) translateX(-30%);
+  filter: blur(2px);
+}
+
+/* ==========================================================================
+   Pickups (Ammo/Pillows)
+   ========================================================================== */
+
+.pickup {
+  position: absolute;
+  width: var(--pickup-size);
+  height: var(--pickup-size);
+  z-index: var(--z-pickups);
+  will-change: transform;
+}
+
+.pillow-pickup {
+  background: #f5f5dc;
+  border-radius: var(--border-radius-sm);
+  opacity: 0;
+  transition: opacity 0.1s;
+  animation: pickup-float 2s ease-in-out infinite;
+}
+
+/* Show pickup when in flashlight */
+.pillow-pickup.visible {
+  opacity: 1;
+}
+
+/* Muzzle flash reveals pickups */
+#arena.muzzle-flash .pillow-pickup {
+  opacity: 1;
+}
+
+/* Pickup glow effect */
+.pillow-pickup::before {
+  content: '';
+  position: absolute;
+  width: 150%;
+  height: 150%;
+  left: -25%;
+  top: -25%;
+  background: radial-gradient(circle, rgba(245, 245, 220, 0.3) 0%, transparent 70%);
+  border-radius: var(--border-radius-full);
+}
+
+@keyframes pickup-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Pickup collected animation */
+.pillow-pickup.collected {
+  animation: pickup-collect 0.3s ease-out forwards;
+}
+
+@keyframes pickup-collect {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Arena Boundary (Sudden Death Shrinking)
+   ========================================================================== */
+
+.arena-boundary {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 0 solid var(--accent-danger);
+  pointer-events: none;
+  z-index: var(--z-effects);
+  transition: border-width 0.5s ease-in-out;
+}
+
+/* Warning pulse during sudden death */
+.arena-boundary.shrinking {
+  animation: boundary-pulse 1s ease-in-out infinite;
+}
+
+@keyframes boundary-pulse {
+  0%, 100% {
+    border-color: var(--accent-danger);
+    box-shadow: inset 0 0 20px rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    border-color: var(--accent-warning);
+    box-shadow: inset 0 0 40px rgba(245, 158, 11, 0.4);
+  }
+}
+
+/* ==========================================================================
+   Spawn Points (Debug/Dev Only)
+   ========================================================================== */
+
+.spawn-point {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  border-radius: var(--border-radius-full);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  display: none;
+}
+
+/* Show spawn points in debug mode */
+#arena.debug .spawn-point {
+  display: block;
+}
+
+/* ==========================================================================
+   Performance Optimizations
+   ========================================================================== */
+
+/* GPU acceleration for moving elements */
+.player,
+.projectile,
+.pickup {
+  transform: translate3d(0, 0, 0);
+}
+
+/* Reduce paint on static elements */
+.obstacle {
+  contain: layout style;
+}

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">
+  <!-- Obstacle sprites for LIGHTS OUT game - dark brown #2d2520 theme -->
+
+  <!-- BED (60x30) - positioned at 10,10 -->
+  <g id="bed" transform="translate(10, 10)">
+    <!-- Bed frame -->
+    <rect x="0" y="0" width="60" height="30" rx="3" ry="3" fill="#2d2520" stroke="#1a1512" stroke-width="1"/>
+    <!-- Mattress area -->
+    <rect x="3" y="3" width="54" height="24" rx="2" ry="2" fill="#3d352f"/>
+    <!-- Pillow at head of bed -->
+    <rect x="5" y="5" width="12" height="8" rx="2" ry="2" fill="#4d453f"/>
+    <!-- Blanket/sheet detail -->
+    <rect x="20" y="6" width="34" height="18" rx="2" ry="2" fill="#352e28"/>
+    <!-- Bed legs/posts hint -->
+    <rect x="2" y="26" width="4" height="4" fill="#1a1512"/>
+    <rect x="54" y="26" width="4" height="4" fill="#1a1512"/>
+  </g>
+
+  <!-- TABLE (40x40) - positioned at 80,10 -->
+  <g id="table" transform="translate(80, 10)">
+    <!-- Table top -->
+    <rect x="0" y="0" width="40" height="40" rx="2" ry="2" fill="#2d2520" stroke="#1a1512" stroke-width="1"/>
+    <!-- Table surface highlight -->
+    <rect x="3" y="3" width="34" height="34" rx="1" ry="1" fill="#352e28"/>
+    <!-- Wood grain details -->
+    <line x1="10" y1="5" x2="10" y2="35" stroke="#2d2520" stroke-width="1" opacity="0.5"/>
+    <line x1="20" y1="5" x2="20" y2="35" stroke="#2d2520" stroke-width="1" opacity="0.5"/>
+    <line x1="30" y1="5" x2="30" y2="35" stroke="#2d2520" stroke-width="1" opacity="0.5"/>
+  </g>
+
+  <!-- CHAIR (25x25) - positioned at 130,15 -->
+  <g id="chair" transform="translate(130, 15)">
+    <!-- Chair seat (top-down view) -->
+    <rect x="0" y="8" width="25" height="17" rx="2" ry="2" fill="#2d2520" stroke="#1a1512" stroke-width="1"/>
+    <!-- Chair back -->
+    <rect x="2" y="0" width="21" height="10" rx="2" ry="2" fill="#352e28" stroke="#1a1512" stroke-width="1"/>
+    <!-- Seat cushion -->
+    <rect x="3" y="11" width="19" height="11" rx="1" ry="1" fill="#3d352f"/>
+  </g>
+
+  <!-- NIGHTSTAND (20x20) - positioned at 165,20 -->
+  <g id="nightstand" transform="translate(165, 20)">
+    <!-- Nightstand body -->
+    <rect x="0" y="0" width="20" height="20" rx="2" ry="2" fill="#2d2520" stroke="#1a1512" stroke-width="1"/>
+    <!-- Top surface -->
+    <rect x="2" y="2" width="16" height="16" rx="1" ry="1" fill="#352e28"/>
+    <!-- Drawer detail -->
+    <rect x="4" y="8" width="12" height="6" rx="1" ry="1" fill="#2d2520" stroke="#1a1512" stroke-width="0.5"/>
+    <!-- Drawer handle -->
+    <rect x="8" y="10" width="4" height="2" rx="0.5" ry="0.5" fill="#1a1512"/>
+  </g>
+</svg>

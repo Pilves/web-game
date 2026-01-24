@@ -1,0 +1,470 @@
+/* ==========================================================================
+   Effects - Animations and visual effects
+   ========================================================================== */
+
+/* ==========================================================================
+   Sound Ripples
+   ========================================================================== */
+
+.sound-ripple {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0);
+  transform: translate(-50%, -50%) scale(0);
+  pointer-events: none;
+  z-index: var(--z-effects);
+}
+
+.sound-ripple.active {
+  animation: ripple-expand 0.5s ease-out forwards;
+}
+
+/* Footstep ripple - subtle */
+.sound-ripple.footstep {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Throw ripple - more visible */
+.sound-ripple.throw {
+  border-color: rgba(255, 200, 100, 0.5);
+}
+
+/* Hit ripple - most visible */
+.sound-ripple.hit {
+  border-color: rgba(255, 100, 100, 0.6);
+}
+
+/* Sprint ripple - larger */
+.sound-ripple.sprint {
+  border-color: rgba(255, 255, 255, 0.4);
+  width: 30px;
+  height: 30px;
+}
+
+@keyframes ripple-expand {
+  0% {
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(4);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Impact Flash
+   ========================================================================== */
+
+.impact-flash {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  background: radial-gradient(circle, rgba(255, 255, 200, 0.9) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: flash-burst 0.15s ease-out forwards;
+  z-index: var(--z-effects);
+}
+
+@keyframes flash-burst {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* Wall hit impact */
+.impact-flash.wall {
+  background: radial-gradient(circle, rgba(200, 200, 255, 0.7) 0%, transparent 70%);
+}
+
+/* Player hit impact */
+.impact-flash.player {
+  background: radial-gradient(circle, rgba(255, 100, 100, 0.9) 0%, transparent 70%);
+}
+
+/* ==========================================================================
+   Screen Shake
+   ========================================================================== */
+
+.shake {
+  animation: shake 0.2s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+@keyframes shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-3px); }
+  40%, 60% { transform: translateX(3px); }
+}
+
+/* Stronger shake for death */
+.shake-strong {
+  animation: shake-strong 0.3s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+@keyframes shake-strong {
+  10%, 90% { transform: translate(-2px, 1px); }
+  20%, 80% { transform: translate(3px, -2px); }
+  30%, 50%, 70% { transform: translate(-4px, 2px); }
+  40%, 60% { transform: translate(4px, -1px); }
+}
+
+/* ==========================================================================
+   Invincibility Flash
+   ========================================================================== */
+
+.player.invincible {
+  animation: invincible-flash 0.1s infinite alternate;
+}
+
+@keyframes invincible-flash {
+  from { opacity: 1; }
+  to { opacity: 0.3; }
+}
+
+/* ==========================================================================
+   Muzzle Flash Effect
+   ========================================================================== */
+
+.muzzle-flash-effect {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  background: radial-gradient(circle, rgba(255, 255, 200, 1) 0%, rgba(255, 200, 100, 0.5) 50%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: muzzle-flash-burst 0.1s ease-out forwards;
+  z-index: var(--z-effects);
+}
+
+@keyframes muzzle-flash-burst {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Death Effect
+   ========================================================================== */
+
+.death-effect {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  pointer-events: none;
+  z-index: var(--z-effects);
+}
+
+.death-particle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+  border-radius: 50%;
+  animation: death-particle-fly 0.5s ease-out forwards;
+}
+
+@keyframes death-particle-fly {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy)) scale(0);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Spawn Effect
+   ========================================================================== */
+
+.spawn-effect {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: spawn-ring 0.5s ease-out forwards;
+  z-index: var(--z-effects);
+}
+
+@keyframes spawn-ring {
+  0% {
+    transform: translate(-50%, -50%) scale(2);
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Pickup Glow Pulse
+   ========================================================================== */
+
+.pickup-glow {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+  animation: pickup-glow-pulse 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes pickup-glow-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.8;
+  }
+}
+
+/* ==========================================================================
+   Damage Vignette
+   ========================================================================== */
+
+.damage-vignette {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(255, 0, 0, 0.3) 100%);
+  opacity: 0;
+  animation: damage-flash 0.3s ease-out forwards;
+  z-index: var(--z-overlay);
+}
+
+@keyframes damage-flash {
+  0% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Low Health Warning
+   ========================================================================== */
+
+.low-health-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(255, 0, 0, 0.15) 100%);
+  animation: low-health-pulse 1s ease-in-out infinite;
+  z-index: calc(var(--z-overlay) - 1);
+}
+
+@keyframes low-health-pulse {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* ==========================================================================
+   Hit Marker
+   ========================================================================== */
+
+.hit-marker {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+  z-index: var(--z-effects);
+}
+
+.hit-marker::before,
+.hit-marker::after {
+  content: '';
+  position: absolute;
+  background: white;
+}
+
+.hit-marker::before {
+  width: 100%;
+  height: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.hit-marker::after {
+  width: 2px;
+  height: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.hit-marker.active {
+  animation: hit-marker-pop 0.2s ease-out forwards;
+}
+
+@keyframes hit-marker-pop {
+  0% {
+    transform: scale(0.5) rotate(45deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5) rotate(45deg);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Victory Crown
+   ========================================================================== */
+
+.victory-crown {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 24px;
+  animation: crown-bounce 0.5s ease-in-out infinite alternate;
+  z-index: var(--z-effects);
+}
+
+@keyframes crown-bounce {
+  from {
+    transform: translateX(-50%) translateY(0);
+  }
+  to {
+    transform: translateX(-50%) translateY(-5px);
+  }
+}
+
+/* ==========================================================================
+   Flashlight Toggle Effect
+   ========================================================================== */
+
+.flashlight-toggle-effect {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgba(255, 250, 200, 0.5) 0%, transparent 70%);
+  animation: flashlight-toggle 0.2s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes flashlight-toggle {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Transition Effects
+   ========================================================================== */
+
+/* Screen fade transition */
+.screen-fade-in {
+  animation: screen-fade-in 0.3s ease-out;
+}
+
+@keyframes screen-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.screen-fade-out {
+  animation: screen-fade-out 0.3s ease-in forwards;
+}
+
+@keyframes screen-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Loading Spinner
+   ========================================================================== */
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--panel-border);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spinner-rotate 1s linear infinite;
+}
+
+@keyframes spinner-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ==========================================================================
+   Text Animations
+   ========================================================================== */
+
+.text-glow {
+  animation: text-glow-pulse 2s ease-in-out infinite alternate;
+}
+
+@keyframes text-glow-pulse {
+  from {
+    text-shadow: 0 0 10px currentColor;
+  }
+  to {
+    text-shadow: 0 0 20px currentColor, 0 0 30px currentColor;
+  }
+}
+
+.text-shake {
+  animation: text-shake 0.1s ease-in-out infinite;
+}
+
+@keyframes text-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}

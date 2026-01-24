@@ -1,0 +1,455 @@
+// Screen management and UI updates
+export class UI {
+  constructor(game) {
+    this.game = game;
+    this.currentScreen = null;
+
+    this.bindMenuEvents();
+    this.bindLobbyEvents();
+    this.bindGameEvents();
+  }
+
+  showScreen(screenName) {
+    // Hide all screens
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+
+    // Show specified screen
+    const screen = document.getElementById(`${screenName}-screen`);
+    if (screen) {
+      screen.classList.add('active');
+      this.currentScreen = screenName;
+    }
+  }
+
+  updateLobby(lobbyData) {
+    if (!lobbyData) return;
+
+    // Update room code display
+    const codeDisplay = document.getElementById('room-code-display');
+    if (codeDisplay) {
+      codeDisplay.textContent = lobbyData.code || '----';
+    }
+
+    // Update players list
+    const playersList = document.getElementById('players-list');
+    if (playersList) {
+      playersList.innerHTML = '';
+
+      for (const player of lobbyData.players) {
+        const item = document.createElement('div');
+        item.className = 'player-item';
+        if (player.ready) item.classList.add('ready');
+        if (player.id === this.game.myId) item.classList.add('self');
+        if (player.id === lobbyData.host) item.classList.add('host');
+
+        const isHost = this.game.isHost;
+        const canKick = isHost && player.id !== this.game.myId;
+
+        item.innerHTML = `
+          <span class="player-color" style="background: ${player.color}"></span>
+          <span class="player-name">${player.name}</span>
+          <span class="player-status">${player.ready ? 'Ready' : 'Not Ready'}</span>
+          ${player.id === lobbyData.host ? '<span class="host-badge">HOST</span>' : ''}
+          ${canKick ? `<button class="kick-btn" data-id="${player.id}">Kick</button>` : ''}
+        `;
+
+        playersList.appendChild(item);
+      }
+    }
+
+    // Update settings visibility (host only can edit)
+    const settingsDiv = document.getElementById('lobby-settings');
+    if (settingsDiv) {
+      settingsDiv.style.display = this.game.isHost ? 'block' : 'none';
+    }
+
+    // Update settings inputs
+    const livesInput = document.getElementById('lives-setting');
+    const timeInput = document.getElementById('time-setting');
+
+    if (livesInput && lobbyData.settings) {
+      livesInput.value = lobbyData.settings.lives;
+      livesInput.disabled = !this.game.isHost;
+    }
+
+    if (timeInput && lobbyData.settings) {
+      timeInput.value = lobbyData.settings.timeLimit;
+      timeInput.disabled = !this.game.isHost;
+    }
+
+    // Update start button (host only, enabled when all ready and 1+ players for solo testing)
+    const startBtn = document.getElementById('start-btn');
+    if (startBtn) {
+      // For solo play: host just needs to be ready (or we skip ready check for host)
+      // For multiplayer: all non-host players must be ready
+      const nonHostPlayers = lobbyData.players.filter(p => p.id !== lobbyData.host);
+      const allNonHostReady = nonHostPlayers.every(p => p.ready);
+      const enoughPlayers = lobbyData.players.length >= 1; // Allow solo
+
+      startBtn.disabled = !this.game.isHost || !allNonHostReady || !enoughPlayers;
+      startBtn.style.display = this.game.isHost ? 'inline-block' : 'none';
+    }
+
+    // Update ready button text
+    const readyBtn = document.getElementById('ready-btn');
+    if (readyBtn) {
+      const myPlayer = lobbyData.players.find(p => p.id === this.game.myId);
+      readyBtn.textContent = myPlayer?.ready ? 'Not Ready' : 'Ready';
+    }
+
+    // Update lobby status
+    const statusEl = document.getElementById('lobby-status');
+    if (statusEl) {
+      const readyCount = lobbyData.players.filter(p => p.ready).length;
+      statusEl.textContent = `${readyCount}/${lobbyData.players.length} players ready`;
+    }
+  }
+
+  updateHUD(state) {
+    if (!state) return;
+
+    // Find local player data
+    const playerData = state.p?.find(p => p[0] === this.game.myId);
+    if (!playerData) return;
+
+    const [id, x, y, facing, flashlight, hearts, hasAmmo, stunned, invincible] = playerData;
+
+    // Update hearts display
+    const heartsDisplay = document.getElementById('hearts-display');
+    if (heartsDisplay) {
+      heartsDisplay.textContent = '\u2665'.repeat(Math.max(0, hearts));
+    }
+
+    // Update ammo display
+    const ammoDisplay = document.getElementById('ammo-display');
+    if (ammoDisplay) {
+      ammoDisplay.textContent = hasAmmo ? '\u25CF' : '\u25CB';
+      ammoDisplay.classList.toggle('has-ammo', !!hasAmmo);
+    }
+
+    // Update timer
+    const timerDisplay = document.getElementById('timer-display');
+    if (timerDisplay && state.time !== undefined) {
+      const minutes = Math.floor(state.time / 60);
+      const seconds = state.time % 60;
+      timerDisplay.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    // Update player name display
+    const nameDisplay = document.getElementById('player-name-display');
+    if (nameDisplay) {
+      const playerInfo = this.game.lobbyData?.players?.find(p => p.id === this.game.myId);
+      if (playerInfo) {
+        nameDisplay.textContent = playerInfo.name;
+      }
+    }
+
+    // Update scoreboard
+    this.updateScoreboard(state);
+  }
+
+  updateScoreboard(state) {
+    const scoreboard = document.getElementById('scoreboard');
+    if (!scoreboard || !state.p) return;
+
+    // Clear existing
+    scoreboard.innerHTML = '';
+
+    // Add each player
+    for (const pData of state.p) {
+      const [id, , , , , hearts] = pData;
+      const playerInfo = this.game.lobbyData?.players?.find(p => p.id === id);
+
+      const item = document.createElement('div');
+      item.className = 'scoreboard-item';
+      if (id === this.game.myId) item.classList.add('self');
+      if (hearts <= 0) item.classList.add('eliminated');
+
+      const name = playerInfo?.name || 'Player';
+      const color = playerInfo?.color || '#ffffff';
+
+      item.innerHTML = `
+        <span class="player-color" style="background: ${color}"></span>
+        <span class="player-name">${name}</span>
+        <span class="player-hearts">${'\u2665'.repeat(Math.max(0, hearts))}</span>
+      `;
+
+      scoreboard.appendChild(item);
+    }
+  }
+
+  showPauseMenu() {
+    const overlay = document.getElementById('pause-overlay');
+    if (overlay) {
+      overlay.style.display = 'flex';
+    }
+  }
+
+  hidePauseMenu() {
+    const overlay = document.getElementById('pause-overlay');
+    if (overlay) {
+      overlay.style.display = 'none';
+    }
+  }
+
+  togglePause() {
+    if (this.game.state === 'playing') {
+      this.game.network.pause();
+    } else if (this.game.state === 'paused') {
+      this.game.network.resume();
+    }
+  }
+
+  showGameOver(winner, scores) {
+    // Update winner text
+    const winnerText = document.getElementById('winner-text');
+    if (winnerText) {
+      if (winner) {
+        const winnerInfo = this.game.lobbyData?.players?.find(p => p.id === winner);
+        const winnerName = winnerInfo?.name || 'Someone';
+        winnerText.textContent = `${winnerName} Wins!`;
+      } else {
+        winnerText.textContent = "It's a Draw!";
+      }
+    }
+
+    // Update final scoreboard
+    const finalScoreboard = document.getElementById('final-scoreboard');
+    if (finalScoreboard && scores) {
+      finalScoreboard.innerHTML = '';
+
+      // Sort by kills, then by deaths (ascending)
+      const sorted = [...scores].sort((a, b) => {
+        if (b.kills !== a.kills) return b.kills - a.kills;
+        return a.deaths - b.deaths;
+      });
+
+      for (const score of sorted) {
+        const row = document.createElement('div');
+        row.className = 'score-row';
+        if (score.id === this.game.myId) row.classList.add('self');
+        if (score.id === winner) row.classList.add('winner');
+
+        row.innerHTML = `
+          <span class="player-name">${score.name}</span>
+          <span class="kills">${score.kills} kills</span>
+          <span class="deaths">${score.deaths} deaths</span>
+        `;
+
+        finalScoreboard.appendChild(row);
+      }
+    }
+
+    this.showScreen('gameover');
+  }
+
+  showCountdown(count) {
+    const overlay = document.getElementById('countdown-overlay');
+    const number = document.getElementById('countdown-number');
+
+    if (overlay && number) {
+      overlay.style.display = 'flex';
+      number.textContent = count;
+    }
+  }
+
+  hideCountdown() {
+    const overlay = document.getElementById('countdown-overlay');
+    if (overlay) {
+      overlay.style.display = 'none';
+    }
+  }
+
+  bindMenuEvents() {
+    const createRoomBtn = document.getElementById('create-room-btn');
+    const joinRoomBtn = document.getElementById('join-room-btn');
+    const playerNameInput = document.getElementById('player-name');
+    const roomCodeInput = document.getElementById('room-code-input');
+
+    if (createRoomBtn) {
+      createRoomBtn.addEventListener('click', () => {
+        const name = playerNameInput?.value.trim() || 'Player';
+        if (name) {
+          this.clearError();
+          this.game.network.createRoom(name);
+        }
+      });
+    }
+
+    if (joinRoomBtn) {
+      joinRoomBtn.addEventListener('click', () => {
+        const name = playerNameInput?.value.trim() || 'Player';
+        const code = roomCodeInput?.value.trim().toUpperCase();
+
+        if (!code || code.length !== 4) {
+          this.showError('Please enter a valid 4-letter room code');
+          return;
+        }
+
+        this.clearError();
+        this.game.network.joinRoom(code, name);
+      });
+    }
+
+    // Allow Enter key to submit room code
+    if (roomCodeInput) {
+      roomCodeInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          joinRoomBtn?.click();
+        }
+      });
+    }
+
+    // Allow Enter key to create room from name input
+    if (playerNameInput) {
+      playerNameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !roomCodeInput?.value.trim()) {
+          createRoomBtn?.click();
+        }
+      });
+    }
+  }
+
+  bindLobbyEvents() {
+    const readyBtn = document.getElementById('ready-btn');
+    const startBtn = document.getElementById('start-btn');
+    const leaveBtn = document.getElementById('leave-btn');
+    const copyCodeBtn = document.getElementById('copy-code-btn');
+    const playersList = document.getElementById('players-list');
+
+    if (readyBtn) {
+      readyBtn.addEventListener('click', () => {
+        this.game.network.toggleReady();
+      });
+    }
+
+    if (startBtn) {
+      startBtn.addEventListener('click', () => {
+        this.game.network.startGame();
+      });
+    }
+
+    if (leaveBtn) {
+      leaveBtn.addEventListener('click', () => {
+        this.game.network.quit();
+        this.game.roomCode = null;
+        this.game.lobbyData = null;
+        this.game.isHost = false;
+        this.showScreen('menu');
+      });
+    }
+
+    if (copyCodeBtn) {
+      copyCodeBtn.addEventListener('click', () => {
+        const codeDisplay = document.getElementById('room-code-display');
+        const code = this.game.roomCode || codeDisplay?.textContent;
+        if (code && code !== '----') {
+          navigator.clipboard.writeText(code).then(() => {
+            copyCodeBtn.textContent = 'Copied!';
+            setTimeout(() => {
+              copyCodeBtn.textContent = 'Copy';
+            }, 2000);
+          }).catch(() => {
+            // Fallback: select the code text
+            if (codeDisplay) {
+              const range = document.createRange();
+              range.selectNodeContents(codeDisplay);
+              const sel = window.getSelection();
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+          });
+        }
+      });
+    }
+
+    // Kick button delegation
+    if (playersList) {
+      playersList.addEventListener('click', (e) => {
+        if (e.target.classList.contains('kick-btn')) {
+          const playerId = e.target.dataset.id;
+          if (playerId) {
+            this.game.network.kickPlayer(playerId);
+          }
+        }
+      });
+    }
+
+    // Settings inputs
+    const livesInput = document.getElementById('lives-setting');
+    const timeInput = document.getElementById('time-setting');
+
+    if (livesInput) {
+      livesInput.addEventListener('change', () => {
+        const lives = parseInt(livesInput.value, 10);
+        if (lives >= 1 && lives <= 5) {
+          this.game.network.updateSettings({ lives });
+        }
+      });
+    }
+
+    if (timeInput) {
+      timeInput.addEventListener('change', () => {
+        const timeLimit = parseInt(timeInput.value, 10);
+        if (timeLimit >= 60 && timeLimit <= 300) {
+          this.game.network.updateSettings({ timeLimit });
+        }
+      });
+    }
+  }
+
+  bindGameEvents() {
+    const pauseBtn = document.getElementById('pause-btn');
+    const resumeBtn = document.getElementById('resume-btn');
+    const quitBtn = document.getElementById('quit-btn');
+    const playAgainBtn = document.getElementById('play-again-btn');
+
+    if (pauseBtn) {
+      pauseBtn.addEventListener('click', () => {
+        this.game.network.pause();
+      });
+    }
+
+    if (resumeBtn) {
+      resumeBtn.addEventListener('click', () => {
+        this.game.network.resume();
+      });
+    }
+
+    if (quitBtn) {
+      quitBtn.addEventListener('click', () => {
+        this.game.network.quit();
+        this.game.localPlayer = null;
+        this.game.serverState = null;
+        this.game.prevServerState = null;
+        if (this.game.effects) {
+          this.game.effects.clear();
+        }
+      });
+    }
+
+    if (playAgainBtn) {
+      playAgainBtn.addEventListener('click', () => {
+        this.game.network.returnToLobby();
+        this.game.localPlayer = null;
+        this.game.serverState = null;
+        this.game.prevServerState = null;
+        this.showScreen('lobby');
+      });
+    }
+  }
+
+  showError(message) {
+    const errorEl = document.getElementById('menu-error');
+    if (errorEl) {
+      errorEl.textContent = message;
+    }
+  }
+
+  clearError() {
+    const errorEl = document.getElementById('menu-error');
+    if (errorEl) {
+      errorEl.textContent = '';
+    }
+  }
+}
