@@ -87,20 +87,25 @@ export class Vision {
   updateVisibility(state, localPlayer) {
     if (!state || !state.p) return;
 
+    // Check if player is spectating (dead but game continues)
+    const isSpectating = this.game.isSpectating;
+
     // Find the local player data from server state
     const localPlayerData = state.p.find(p => p[0] === this.game.myId);
-    if (!localPlayerData) return;
+    if (!localPlayerData && !isSpectating) return;
 
-    // Extract local player info
-    const [, lx, ly, lfacing, lflashlight] = localPlayerData;
-
-    // Use predicted local position if available
-    const viewer = {
-      x: localPlayer?.x ?? lx,
-      y: localPlayer?.y ?? ly,
-      facing: localPlayer?.facing ?? lfacing,
-      flashlightOn: !!lflashlight
-    };
+    // Extract local player info (only needed if not spectating)
+    let viewer = null;
+    if (!isSpectating && localPlayerData) {
+      const [, lx, ly, lfacing, lflashlight] = localPlayerData;
+      // Use predicted local position if available
+      viewer = {
+        x: localPlayer?.x ?? lx,
+        y: localPlayer?.y ?? ly,
+        facing: localPlayer?.facing ?? lfacing,
+        flashlightOn: !!lflashlight
+      };
+    }
 
     // Check muzzle flash state from server
     const muzzleFlash = !!state.mf;
@@ -115,6 +120,12 @@ export class Vision {
       // Get cached player element
       const playerEl = this.getPlayerElement(id);
       if (!playerEl) continue;
+
+      // Spectators see everything - all players are visible
+      if (isSpectating) {
+        playerEl.classList.add('visible');
+        continue;
+      }
 
       // Create target object
       const target = {
@@ -147,6 +158,12 @@ export class Vision {
         // Inactive pickups should not be visible
         if (!active) {
           pickupEl.classList.remove('visible');
+          continue;
+        }
+
+        // Spectators see everything - all active pickups are visible
+        if (isSpectating) {
+          pickupEl.classList.add('visible');
           continue;
         }
 

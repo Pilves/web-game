@@ -54,9 +54,10 @@ function applyInput(player, input, dt) {
   // Can't move while stunned
   const now = Date.now();
   if (player.stunnedUntil && now < player.stunnedUntil) {
-    // Apply friction while stunned
-    player.vx *= CONSTANTS.PLAYER_FRICTION;
-    player.vy *= CONSTANTS.PLAYER_FRICTION;
+    // Apply friction while stunned (framerate independent)
+    const frictionFactor = Math.pow(CONSTANTS.PLAYER_FRICTION, dt * 60);
+    player.vx *= frictionFactor;
+    player.vy *= frictionFactor;
     return;
   }
 
@@ -179,11 +180,11 @@ function resolveCollision(player, obstacle, oldX, oldY) {
   const halfSize = CONSTANTS.PLAYER_SIZE / 2;
   const playerRect = getPlayerRect(player);
 
-  // Calculate overlap on each axis
-  // overlapLeft: how far the player's RIGHT edge penetrates past the obstacle's LEFT edge
-  // overlapRight: how far the player's LEFT edge penetrates past the obstacle's RIGHT edge
-  // overlapTop: how far the player's BOTTOM edge penetrates past the obstacle's TOP edge
-  // overlapBottom: how far the player's TOP edge penetrates past the obstacle's BOTTOM edge
+  // Calculate overlap on each axis (distance to escape in each direction)
+  // overlapLeft: distance to move LEFT to escape (player's right edge past obstacle's left edge)
+  // overlapRight: distance to move RIGHT to escape (obstacle's right edge past player's left edge)
+  // overlapTop: distance to move UP to escape (player's bottom edge past obstacle's top edge)
+  // overlapBottom: distance to move DOWN to escape (obstacle's bottom edge past player's top edge)
   const overlapLeft = (playerRect.x + playerRect.width) - obstacle.x;
   const overlapRight = (obstacle.x + obstacle.width) - playerRect.x;
   const overlapTop = (playerRect.y + playerRect.height) - obstacle.y;
@@ -194,23 +195,25 @@ function resolveCollision(player, obstacle, oldX, oldY) {
   const minOverlapY = Math.min(overlapTop, overlapBottom);
 
   // Push out along axis of least penetration (shortest distance to escape collision)
+  // Note: overlapLeft measures penetration of player's right edge past obstacle's left edge
+  // A smaller overlapLeft means less distance to push LEFT to escape
   if (minOverlapX < minOverlapY) {
     // Push horizontally - less penetration on X axis
     if (overlapLeft < overlapRight) {
-      // Player came from the left, push back to obstacle's left edge
+      // Smaller left overlap: push player LEFT (before obstacle's left edge)
       player.x = obstacle.x - halfSize;
     } else {
-      // Player came from the right, push back to obstacle's right edge
+      // Smaller right overlap: push player RIGHT (past obstacle's right edge)
       player.x = obstacle.x + obstacle.width + halfSize;
     }
     player.vx = 0;
   } else {
     // Push vertically - less penetration on Y axis
     if (overlapTop < overlapBottom) {
-      // Player came from above, push back to obstacle's top edge
+      // Smaller top overlap: push player UP (above obstacle's top edge)
       player.y = obstacle.y - halfSize;
     } else {
-      // Player came from below, push back to obstacle's bottom edge
+      // Smaller bottom overlap: push player DOWN (below obstacle's bottom edge)
       player.y = obstacle.y + obstacle.height + halfSize;
     }
     player.vy = 0;

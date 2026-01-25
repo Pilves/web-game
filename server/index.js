@@ -5,11 +5,28 @@ const GameManager = require('./GameManager');
 
 const app = express();
 const server = http.createServer(app);
+// Parse CORS origins from environment variable
+// Supports single origin or comma-separated list of origins
+// Examples:
+//   CORS_ORIGIN=https://yourgame.com
+//   CORS_ORIGIN=https://yourgame.com,https://www.yourgame.com
+//   CORS_ORIGIN=* (allows all origins - NOT recommended for production)
+function parseCorsOrigins() {
+  const envOrigin = process.env.CORS_ORIGIN;
+  if (!envOrigin) {
+    return 'http://localhost:3000';
+  }
+  if (envOrigin === '*') {
+    return '*';
+  }
+  const origins = envOrigin.split(',').map(o => o.trim()).filter(Boolean);
+  return origins.length === 1 ? origins[0] : origins;
+}
+
 const io = new Server(server, {
   cors: {
-    // SECURITY: In production, restrict this to your specific domain(s)
-    // e.g., origin: 'https://yourgame.com' or ['https://yourgame.com', 'https://www.yourgame.com']
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: parseCorsOrigins(),
+    methods: ['GET', 'POST'],
   },
 });
 

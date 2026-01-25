@@ -394,6 +394,62 @@
 }
 
 /* ==========================================================================
+   Spectator Mode
+   ========================================================================== */
+
+/* When spectating, arena gets a subtle visual indicator */
+#arena.spectating {
+  border-color: var(--text-muted);
+  box-shadow: inset 0 0 50px rgba(255, 255, 255, 0.05);
+}
+
+/* Spectators see all players clearly */
+#arena.spectating .player {
+  opacity: 1 !important;
+}
+
+/* Spectators see all pickups */
+#arena.spectating .pillow-pickup {
+  opacity: 1 !important;
+}
+
+/* Optional: Slightly dim the spectator view to indicate non-participation */
+#arena.spectating::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.1);
+  pointer-events: none;
+  z-index: var(--z-effects);
+}
+
+/* Spectating indicator in HUD */
+.spectating-indicator {
+  color: var(--accent-warning);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid var(--accent-warning);
+  border-radius: var(--border-radius-sm);
+  animation: spectating-pulse 2s ease-in-out infinite;
+}
+
+@keyframes spectating-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* ==========================================================================
    Performance Optimizations
    ========================================================================== */
 

@@ -61,16 +61,29 @@ class GameManager {
 
   /**
    * Generate a unique 4-letter room code
+   * With 24 chars and 4 positions = 331,776 possible codes
+   * Max iterations prevents infinite loop if server is overloaded
    */
   generateRoomCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // Excluded I and O to avoid confusion
+    const maxPossibleCodes = Math.pow(chars.length, CONSTANTS.ROOM_CODE_LENGTH);
+    const maxIterations = Math.min(1000, maxPossibleCodes);
     let code;
+    let iterations = 0;
+
     do {
       code = '';
       for (let i = 0; i < CONSTANTS.ROOM_CODE_LENGTH; i++) {
         code += chars.charAt(Math.floor(Math.random() * chars.length));
       }
+      iterations++;
+
+      if (iterations >= maxIterations) {
+        console.error(`[GameManager] Failed to generate unique room code after ${maxIterations} attempts. Active rooms: ${this.rooms.size}`);
+        return null;
+      }
     } while (this.rooms.has(code));
+
     return code;
   }
 
@@ -125,15 +138,42 @@ class GameManager {
     }
 
     const playerName = name.trim().substring(0, 20).replace(/[<>"'&]/g, ''); // Limit name length and sanitize
-    const code = this.generateRoomCode();
+
+    // TOCTOU fix: Generate code and atomically check-and-set
+    // Use a loop to handle race condition where another request could create
+    // a room with the same code between generateRoomCode() and rooms.set()
+    let code = null;
+    let room = null;
+    const maxAttempts = 10;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      code = this.generateRoomCode();
+
+      // Handle room code generation failure (too many active rooms)
+      if (!code) {
+        socket.emit('join-error', { message: 'Server is busy. Please try again later.' });
+        return;
+      }
+
+      // TOCTOU fix: Double-check the code is still available right before setting
+      // This narrows the race window to the absolute minimum
+      if (!this.rooms.has(code)) {
+        // Create the game room immediately after verification
+        room = new GameRoom(this.io, code, socket.id);
+        this.rooms.set(code, room);
+        break;
+      }
+      // Code was taken by a concurrent request, try again
+    }
+
+    if (!room) {
+      socket.emit('join-error', { message: 'Server is busy. Please try again later.' });
+      return;
+    }
 
     // Set room creation cooldown
     this.roomCreationCooldown.set(socket.id, Date.now());
     setTimeout(() => this.roomCreationCooldown.delete(socket.id), CONSTANTS.ROOM_CREATION_COOLDOWN);
-
-    // Create the game room
-    const room = new GameRoom(this.io, code, socket.id);
-    this.rooms.set(code, room);
 
     // Create player object
     const player = {
@@ -182,26 +222,25 @@ class GameManager {
 
     const playerName = name.trim().substring(0, 20).replace(/[<>"'&]/g, ''); // Sanitize
 
-    // Check if room exists
+    // TOCTOU fix: Perform all validation and mutation atomically
+    // Get room and validate all conditions in one block before any mutations
     const room = this.rooms.get(roomCode);
     if (!room) {
       socket.emit('join-error', { message: 'Room not found' });
       return;
     }
 
-    // Check room capacity
+    // Validate all conditions before any state changes
     if (room.players.size >= CONSTANTS.MAX_PLAYERS) {
       socket.emit('join-error', { message: 'Room is full' });
       return;
     }
 
-    // Check if game is in progress
     if (room.state !== 'lobby') {
       socket.emit('join-error', { message: 'Game already in progress' });
       return;
     }
 
-    // Check name uniqueness
     if (!this.isNameUnique(room, playerName)) {
       socket.emit('join-error', { message: 'Name already taken in this room' });
       return;
@@ -219,9 +258,28 @@ class GameManager {
       roomCode: roomCode,
     };
 
-    // Add player to tracking
+    // TOCTOU fix: Re-verify room still exists before mutations
+    // Room could have been deleted between validation and now
+    const roomVerify = this.rooms.get(roomCode);
+    if (!roomVerify || roomVerify !== room) {
+      socket.emit('join-error', { message: 'Room no longer available' });
+      return;
+    }
+
+    // Re-check critical conditions that could have changed
+    if (roomVerify.players.size >= CONSTANTS.MAX_PLAYERS) {
+      socket.emit('join-error', { message: 'Room is full' });
+      return;
+    }
+
+    if (roomVerify.state !== 'lobby') {
+      socket.emit('join-error', { message: 'Game already in progress' });
+      return;
+    }
+
+    // Add player to tracking (atomic operation on Map)
     this.players.set(socket.id, player);
-    room.players.set(socket.id, player);
+    roomVerify.players.set(socket.id, player);
 
     // Join socket.io room
     socket.join(roomCode);
@@ -230,7 +288,7 @@ class GameManager {
     socket.emit('room-joined', { code: roomCode });
 
     // Then notify all players in room (including the new player via room broadcast)
-    this.broadcastLobbyUpdate(room);
+    this.broadcastLobbyUpdate(roomVerify);
 
     console.log(`${playerName} (${socket.id}) joined room ${roomCode}`);
   }

@@ -14,6 +14,9 @@ export const CONFIG = {
   // Client-only: Combat
   PICKUP_SIZE: 30,
 
+  // Client-only: Vision
+  FLASHLIGHT_FLICKER_THRESHOLD: 10000, // ms - when flashlight starts flickering
+
   // Client-only: Networking
   INPUT_SEND_RATE: 60,    // Hz - match physics tick
   INTERPOLATION_DELAY: 50, // ms - time between server updates

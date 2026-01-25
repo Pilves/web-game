@@ -188,6 +188,25 @@
   }
 }
 
+/* Player dying animation */
+.player.dying {
+  animation: death-animation 0.5s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes death-animation {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+    filter: grayscale(0%);
+  }
+  100% {
+    transform: scale(0.5);
+    opacity: 0;
+    filter: grayscale(100%);
+  }
+}
+
 /* ==========================================================================
    Spawn Effect
    ========================================================================== */

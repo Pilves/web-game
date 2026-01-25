@@ -34,7 +34,52 @@
 
       <p id="menu-error" class="error-message" aria-live="polite" role="alert"></p>
 
-      <button id="controls-btn" class="btn btn-secondary btn-small" aria-label="Open controls settings">Controls</button>
+      <div class="menu-info-buttons">
+        <button id="how-to-play-btn" class="btn btn-secondary btn-small" aria-label="Open how to play guide">How to Play</button>
+        <button id="controls-btn" class="btn btn-secondary btn-small" aria-label="Open controls settings">Controls</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- How to Play Modal -->
+  <div id="how-to-play-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="how-to-play-modal-title">
+    <div class="modal-content how-to-play-content">
+      <h2 id="how-to-play-modal-title">How to Play</h2>
+
+      <div class="how-to-play-section">
+        <h3>Objective</h3>
+        <p>Be the last player standing in a dark arena pillow fight.</p>
+      </div>
+
+      <div class="how-to-play-section">
+        <h3>Core Mechanic</h3>
+        <p>The arena is pitch black. Use your flashlight to spot enemies - but beware, they'll see your light too!</p>
+      </div>
+
+      <div class="how-to-play-section">
+        <h3>Tips</h3>
+        <ul class="tips-list">
+          <li><span class="tip-icon">&#128294;</span> Flashlight reveals enemies but exposes your position</li>
+          <li><span class="tip-icon">&#128066;</span> Listen for footsteps to locate nearby players</li>
+          <li><span class="tip-icon">&#128716;</span> Pick up pillows scattered around to throw</li>
+          <li><span class="tip-icon">&#127939;</span> Sprinting is faster but louder</li>
+          <li><span class="tip-icon">&#9201;</span> When time runs out, sudden death shrinks the arena</li>
+        </ul>
+      </div>
+
+      <div class="how-to-play-section">
+        <h3>Quick Controls</h3>
+        <div class="quick-controls">
+          <div class="quick-control"><kbd>WASD</kbd> <span>Move</span></div>
+          <div class="quick-control"><kbd>Space</kbd> <span>Throw pillow</span></div>
+          <div class="quick-control"><kbd>F</kbd> <span>Toggle flashlight</span></div>
+          <div class="quick-control"><kbd>Shift</kbd> <span>Sprint</span></div>
+        </div>
+      </div>
+
+      <div class="modal-buttons">
+        <button id="close-how-to-play-btn" class="btn btn-primary" aria-label="Close how to play guide">Done</button>
+      </div>
     </div>
   </div>
 
@@ -128,6 +173,7 @@
         <div id="player-name-display"></div>
       </div>
       <div id="hud-right">
+        <div id="fps-display" class="debug-info" aria-hidden="true">-- FPS</div>
         <div id="timer-display" aria-live="off" aria-label="Game timer">3:00</div>
         <button id="pause-btn" class="btn btn-small" aria-label="Pause game">≡</button>
       </div>

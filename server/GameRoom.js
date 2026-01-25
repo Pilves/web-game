@@ -32,10 +32,16 @@ class GameRoom {
     // State machine
     this.state = 'lobby'; // 'lobby', 'countdown', 'playing', 'paused', 'gameover'
 
-    // Game settings
+    // Game settings (with validation and type coercion)
+    const parsedLives = parseInt(settings.lives, 10);
+    const parsedTimeLimit = parseInt(settings.timeLimit, 10);
     this.settings = {
-      lives: settings.lives || CONSTANTS.DEFAULT_LIVES,
-      timeLimit: settings.timeLimit || CONSTANTS.DEFAULT_TIME_LIMIT,
+      lives: (Number.isFinite(parsedLives) && parsedLives > 0 && parsedLives <= 10)
+        ? parsedLives
+        : CONSTANTS.DEFAULT_LIVES,
+      timeLimit: (Number.isFinite(parsedTimeLimit) && parsedTimeLimit > 0 && parsedTimeLimit <= 600)
+        ? parsedTimeLimit
+        : CONSTANTS.DEFAULT_TIME_LIMIT,
     };
 
     // Lobby players (Map: socketId -> player object)
@@ -181,16 +187,51 @@ class GameRoom {
   }
 
   /**
+   * Validate state transition
+   * @param {string} fromState - Current state
+   * @param {string} toState - Target state
+   * @returns {boolean} true if transition is valid
+   */
+  isValidStateTransition(fromState, toState) {
+    const validTransitions = {
+      'lobby': ['countdown'],
+      'countdown': ['lobby', 'playing'],
+      'playing': ['paused', 'gameover'],
+      'paused': ['playing', 'gameover'],
+      'gameover': ['lobby'],
+    };
+    const allowed = validTransitions[fromState];
+    return allowed && allowed.includes(toState);
+  }
+
+  /**
    * Add player from lobby to game state
    * @param {Object} socket - Player socket
    * @param {string} name - Player name
    * @param {string} color - Player color
    */
   addPlayer(socket, name, color) {
+    // Validate socket
+    if (!socket || typeof socket.id !== 'string' || socket.id.length === 0) {
+      console.log(`[GameRoom ${this.code}] addPlayer: invalid socket`);
+      return;
+    }
+
+    // Sanitize and validate name
+    const sanitizedName = typeof name === 'string'
+      ? name.trim().slice(0, 20)
+      : 'Player';
+
+    // Validate color (hex color format)
+    const colorRegex = /^#[0-9A-Fa-f]{6}$/;
+    const sanitizedColor = (typeof color === 'string' && colorRegex.test(color))
+      ? color
+      : '#ffffff';
+
     const player = {
       id: socket.id,
-      name: name,
-      color: color,
+      name: sanitizedName || 'Player',
+      color: sanitizedColor,
       ready: false,
       roomCode: this.code,
     };
@@ -206,7 +247,12 @@ class GameRoom {
 
     // Initialize game players with spawn positions
     playerList.forEach((player, index) => {
-      const spawn = CONSTANTS.SPAWN_POINTS[index] || CONSTANTS.SPAWN_POINTS[0];
+      // Safe array access with fallback to center of arena
+      const spawnPoints = Array.isArray(CONSTANTS.SPAWN_POINTS) ? CONSTANTS.SPAWN_POINTS : [];
+      const defaultSpawn = { x: CONSTANTS.ARENA_WIDTH / 2, y: CONSTANTS.ARENA_HEIGHT / 2 };
+      const spawn = (index >= 0 && index < spawnPoints.length)
+        ? spawnPoints[index]
+        : (spawnPoints[0] || defaultSpawn);
 
       const gamePlayer = {
         id: player.id,
@@ -217,7 +263,8 @@ class GameRoom {
         vx: 0,
         vy: 0,
         facing: 0, // radians, 0 = right
-        flashlightOn: true,
+        flashlightOn: false,
+        flashlightOnSince: 0, // Track when flashlight was turned on (for flicker)
         hearts: this.settings.lives,
         hasAmmo: true,  // Players start with 1 pillow
         stunnedUntil: 0,
@@ -273,6 +320,11 @@ class GameRoom {
    * Start the countdown sequence
    */
   startCountdown() {
+    // Validate state transition
+    if (!this.isValidStateTransition(this.state, 'countdown')) {
+      console.log(`[GameRoom ${this.code}] Cannot start countdown from state: ${this.state}`);
+      return;
+    }
     this.state = 'countdown';
     this.initializeGame();
 
@@ -330,6 +382,12 @@ class GameRoom {
    * Start the game (called after countdown)
    */
   startGame() {
+    // Validate state transition
+    if (!this.isValidStateTransition(this.state, 'playing')) {
+      console.log(`[GameRoom ${this.code}] Cannot start game from state: ${this.state}`);
+      return;
+    }
+
     // Verify player count is still valid
     if (this.players.size < CONSTANTS.MIN_PLAYERS) {
       this.state = 'lobby';
@@ -456,7 +514,8 @@ class GameRoom {
    */
   checkPickupCollisions(players) {
     for (const player of players) {
-      if (!player.connected || player.hearts <= 0 || !player.hasAmmo) continue;
+      // Skip players who: are disconnected, are dead, or already have ammo
+      if (!player.connected || player.hearts <= 0 || player.hasAmmo) continue;
 
       const playerRect = Physics.getPlayerRect(player);
 
@@ -679,6 +738,7 @@ class GameRoom {
         player.hasAmmo,
         player.stunnedUntil > now,
         player.invincibleUntil > now,
+        player.flashlightOnSince || 0, // Timestamp for flicker effect
       ]);
     }
 
@@ -718,6 +778,16 @@ class GameRoom {
    * @param {Object} inputData - Input data from client
    */
   handleInput(playerId, inputData) {
+    // Validate playerId
+    if (typeof playerId !== 'string' || playerId.length === 0) {
+      return;
+    }
+
+    // Validate inputData is an object
+    if (inputData === null || typeof inputData !== 'object') {
+      return;
+    }
+
     // Rate limiting check - prevent input flooding (DOS protection)
     if (!this.checkInputRateLimit(playerId)) {
       return;
@@ -762,11 +832,18 @@ class GameRoom {
       player.input.sprint = input.sprint === true;
     }
 
-    // Update facing direction
+    // Update facing direction (validate and normalize to -PI to PI range)
     if (inputData.facing !== undefined) {
       const facing = parseFloat(inputData.facing);
       if (Number.isFinite(facing)) {
-        player.facing = facing;
+        // Normalize angle to valid range (-PI to PI)
+        let normalizedFacing = facing % (2 * Math.PI);
+        if (normalizedFacing > Math.PI) {
+          normalizedFacing -= 2 * Math.PI;
+        } else if (normalizedFacing < -Math.PI) {
+          normalizedFacing += 2 * Math.PI;
+        }
+        player.facing = normalizedFacing;
       }
     }
 
@@ -778,6 +855,8 @@ class GameRoom {
       if (now - player.lastFlashlightToggle >= FLASHLIGHT_TOGGLE_COOLDOWN) {
         player.flashlightOn = !player.flashlightOn;
         player.lastFlashlightToggle = now;
+        // Track flashlight on time for flicker effect
+        player.flashlightOnSince = player.flashlightOn ? now : 0;
         console.log(`[GameRoom ${this.code}] Player ${playerId.substring(0, 8)} flashlight toggled to: ${player.flashlightOn}`);
       }
     }
@@ -793,6 +872,11 @@ class GameRoom {
    * @param {Object} player - Player object
    */
   handleThrow(player) {
+    // Validate player object
+    if (!player || typeof player !== 'object') {
+      return;
+    }
+
     // Limit projectiles per room to prevent DOS
     const MAX_PROJECTILES = 50;
     if (this.projectiles.length >= MAX_PROJECTILES) {
@@ -837,15 +921,28 @@ class GameRoom {
    * @param {string} playerId - Player requesting pause
    */
   pause(playerId) {
-    if (this.state !== 'playing') return;
+    // Validate playerId
+    if (typeof playerId !== 'string' || playerId.length === 0) {
+      return;
+    }
+
+    // Validate state transition
+    if (!this.isValidStateTransition(this.state, 'paused')) {
+      return;
+    }
+
+    // Verify player exists in game
+    const player = this.gamePlayers.get(playerId);
+    if (!player) {
+      return;
+    }
 
     // Only host can pause (optional: any player can pause)
     // For now, any player can pause
     this.state = 'paused';
     this.pausedBy = playerId;
 
-    const player = this.gamePlayers.get(playerId);
-    const playerName = player ? player.name : 'Unknown';
+    const playerName = player.name || 'Unknown';
 
     this.io.to(this.code).emit('game-paused', {
       by: playerId,
@@ -858,7 +955,15 @@ class GameRoom {
    * @param {string} playerId - Player requesting resume
    */
   resume(playerId) {
-    if (this.state !== 'paused') return;
+    // Validate playerId
+    if (typeof playerId !== 'string' || playerId.length === 0) {
+      return;
+    }
+
+    // Validate state transition
+    if (!this.isValidStateTransition(this.state, 'playing')) {
+      return;
+    }
 
     // Only the player who paused or host can resume
     if (playerId !== this.pausedBy && playerId !== this.host) {
@@ -877,7 +982,10 @@ class GameRoom {
    * @param {Object} winner - Winner player object (or null for draw)
    */
   endGame(winner = null) {
-    if (this.state === 'gameover') return;  // Prevent duplicate calls
+    // Validate state transition (gameover can come from playing or paused)
+    if (!this.isValidStateTransition(this.state, 'gameover')) {
+      return;
+    }
 
     // Set flag FIRST to prevent physics tick race condition
     this.gameLoopActive = false;
@@ -912,6 +1020,11 @@ class GameRoom {
    * @param {string} playerId - Disconnected player ID
    */
   handlePlayerDisconnect(playerId) {
+    // Validate playerId
+    if (typeof playerId !== 'string' || playerId.length === 0) {
+      return;
+    }
+
     const player = this.gamePlayers.get(playerId);
     if (player) {
       player.connected = false;
@@ -930,6 +1043,11 @@ class GameRoom {
    * @param {string} playerId - Player ID to remove
    */
   removePlayer(playerId) {
+    // Validate playerId
+    if (typeof playerId !== 'string' || playerId.length === 0) {
+      return;
+    }
+
     const player = this.gamePlayers.get(playerId);
     if (player) {
       player.connected = false;
@@ -949,6 +1067,10 @@ class GameRoom {
    * Reset room to lobby state
    */
   resetToLobby() {
+    // Only allow reset to lobby from gameover state (or force reset)
+    if (this.state !== 'gameover' && this.state !== 'lobby') {
+      console.log(`[GameRoom ${this.code}] Warning: resetToLobby called from state: ${this.state}`);
+    }
     this.state = 'lobby';
     this.gamePlayers.clear();
     this.syncGamePlayersObject();

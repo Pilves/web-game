@@ -526,3 +526,114 @@ input[type="number"] {
   0%, 100% { border-color: var(--accent-warning); }
   50% { border-color: var(--accent-primary); }
 }
+
+/* ==========================================================================
+   Menu Info Buttons (How to Play, Controls)
+   ========================================================================== */
+
+.menu-info-buttons {
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: center;
+}
+
+/* ==========================================================================
+   How to Play Modal
+   ========================================================================== */
+
+.how-to-play-content {
+  max-width: 550px;
+}
+
+.how-to-play-section {
+  margin-bottom: var(--spacing-lg);
+}
+
+.how-to-play-section:last-of-type {
+  margin-bottom: 0;
+}
+
+.how-to-play-section h3 {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--accent-primary);
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.how-to-play-section p {
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.tips-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.tips-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.tip-icon {
+  font-size: var(--font-size-lg);
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+
+.quick-controls {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-sm);
+}
+
+.quick-control {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--border-radius-sm);
+}
+
+.quick-control kbd {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--border-radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  min-width: 50px;
+  text-align: center;
+}
+
+.quick-control span {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+@media (max-width: 480px) {
+  .menu-info-buttons {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .menu-info-buttons .btn {
+    width: 100%;
+  }
+
+  .quick-controls {
+    grid-template-columns: 1fr;
+  }
+}

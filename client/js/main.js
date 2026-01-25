@@ -21,8 +21,18 @@ class Game {
     this.ui = null; // Initialized after DOM ready
     this.vision = null; // Initialized after DOM ready
 
-    // Game state: 'menu', 'lobby', 'playing', 'paused', 'gameover'
+    // Game state: 'menu', 'lobby', 'playing', 'paused', 'gameover', 'countdown'
     this.state = 'menu';
+
+    // Valid state transitions map
+    this.validTransitions = {
+      'menu': ['lobby', 'menu'],
+      'lobby': ['countdown', 'menu', 'lobby'],
+      'countdown': ['playing', 'lobby', 'menu'],
+      'playing': ['paused', 'gameover', 'menu'],
+      'paused': ['playing', 'gameover', 'menu'],
+      'gameover': ['lobby', 'menu']
+    };
 
     // Debug frame counter
     this._debugFrameCount = 0;
@@ -38,6 +48,9 @@ class Game {
 
     // Local player for client-side prediction
     this.localPlayer = null;
+
+    // Spectator mode (when player is dead but game continues)
+    this.isSpectating = false;
 
     // Arena inset (for sudden death shrinking)
     this.arenaInset = 0;
@@ -60,8 +73,31 @@ class Game {
     // Audio context resume flag
     this.audioInitialized = false;
 
+    // FPS tracking
+    this.fpsHistory = [];
+    this.fpsLastUpdate = 0;
+    this.fpsUpdateInterval = 250; // Update FPS display every 250ms
+
     // Bind gameLoop once to avoid creating new function every frame
     this._boundGameLoop = this.gameLoop.bind(this);
+  }
+
+  // Validate and perform state transition
+  transitionState(newState) {
+    const validTargets = this.validTransitions[this.state];
+    if (!validTargets || !validTargets.includes(newState)) {
+      console.warn(`[Game] Invalid state transition from '${this.state}' to '${newState}'`);
+      return false;
+    }
+    console.log(`[Game] State transition: ${this.state} -> ${newState}`);
+    this.state = newState;
+    return true;
+  }
+
+  // Check if a state transition is valid without performing it
+  canTransitionTo(newState) {
+    const validTargets = this.validTransitions[this.state];
+    return validTargets && validTargets.includes(newState);
   }
 
   // Start the game
@@ -96,14 +132,33 @@ class Game {
     // Set up UI event listeners
     this.setupUIListeners();
 
-    // Show menu screen
+    // Show menu screen (force state since we're initializing)
     this.ui.showScreen('menu');
     this.state = 'menu';
 
     // Start game loop
+    this.startGameLoop();
+  }
+
+  // Start the game loop (called on init and reconnect)
+  startGameLoop() {
+    if (this.running) {
+      console.log('[Game] Game loop already running');
+      return;
+    }
     this.running = true;
+    this.lastFrameTime = 0; // Reset to avoid large dt on first frame
     console.log('[Game] Starting game loop');
     this.animationFrameId = requestAnimationFrame(this._boundGameLoop);
+  }
+
+  // Stop the game loop
+  stopGameLoop() {
+    this.running = false;
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
   }
 
   // Main game loop
@@ -122,6 +177,22 @@ class Game {
     // Cap dt to prevent large jumps
     const cappedDt = Math.min(dt, 0.1);
 
+    // Track FPS
+    if (dt > 0) {
+      const instantFps = 1 / dt;
+      this.fpsHistory.push(instantFps);
+      // Keep last 60 samples for averaging
+      if (this.fpsHistory.length > 60) {
+        this.fpsHistory.shift();
+      }
+    }
+
+    // Update FPS display periodically
+    if (timestamp - this.fpsLastUpdate >= this.fpsUpdateInterval) {
+      this.updateFpsDisplay();
+      this.fpsLastUpdate = timestamp;
+    }
+
     // Debug log every 60 frames (roughly 1 second)
     this._debugFrameCount++;
     const shouldLog = this._debugFrameCount % 60 === 0;
@@ -131,15 +202,16 @@ class Game {
       this.stateTime += cappedDt * 1000;
 
       // Poll input - consume toggles immediately in first call to avoid race condition
+      // Spectators don't send input (they can't interact with the game)
       const now = performance.now();
       const shouldSend = now - this.lastInputSendTime >= this.inputSendInterval;
-      const input = this.input.getState(shouldSend); // Consume toggles only when sending
-      if (shouldSend) {
+      const input = this.isSpectating ? null : this.input.getState(shouldSend); // Consume toggles only when sending
+      if (shouldSend && !this.isSpectating) {
         this.network.sendInput(input);
         this.lastInputSendTime = now;
       }
 
-      if (shouldLog) {
+      if (shouldLog && input) {
         console.log('[Game] Playing state - Input:', {
           up: input.up, down: input.down, left: input.left, right: input.right,
           facing: input.facing?.toFixed(2),
@@ -147,10 +219,14 @@ class Game {
           hasServerState: !!this.serverState,
           localPlayerPos: this.localPlayer ? `(${this.localPlayer.x?.toFixed(0)}, ${this.localPlayer.y?.toFixed(0)})` : 'N/A'
         });
+      } else if (shouldLog && this.isSpectating) {
+        console.log('[Game] Spectating - watching game');
       }
 
-      // Predict local player movement
-      this.predictLocalPlayer(input, cappedDt);
+      // Predict local player movement (skip when spectating)
+      if (!this.isSpectating) {
+        this.predictLocalPlayer(input, cappedDt);
+      }
 
       // Render game state (if renderer is available)
       if (this.renderer) {
@@ -235,8 +311,36 @@ class Game {
     // Reconcile local player position with server
     this.reconcileLocalPlayer(state);
 
+    // Check if local player is dead (hearts <= 0) and enter spectator mode
+    this.checkSpectatorMode(state);
+
     // Update HUD
-    this.ui.updateHUD(state);
+    this.ui.updateHUD(state, this.isSpectating);
+  }
+
+  // Check if local player should enter spectator mode (dead but game continues)
+  checkSpectatorMode(state) {
+    if (!state || !state.p) return;
+
+    const myPlayerData = state.p.find(p => p[0] === this.myId);
+    if (!myPlayerData) return;
+
+    const hearts = myPlayerData[5]; // hearts is at index 5
+
+    // Enter spectator mode when dead (hearts <= 0)
+    if (hearts <= 0 && !this.isSpectating) {
+      this.isSpectating = true;
+      console.log('[Game] Entered spectator mode');
+
+      // Add spectating class to arena for CSS styling
+      const arena = document.getElementById('arena');
+      if (arena) {
+        arena.classList.add('spectating');
+      }
+
+      // Show notification
+      this.showNotification('You died! Now spectating...');
+    }
   }
 
   // Handle game events from server
@@ -352,7 +456,7 @@ class Game {
     if (!state || !state.p) return null;
 
     const playerData = state.p.find(p => p && p[0] === playerId);
-    if (!playerData || playerData.length < 9) return null;
+    if (!playerData || playerData.length < 10) return null;
 
     // Return object with named properties
     return {
@@ -365,6 +469,7 @@ class Game {
       hasAmmo: playerData[6],
       stunned: playerData[7],
       invincible: playerData[8],
+      flashlightOnSince: playerData[9],
     };
   }
 
@@ -578,9 +683,12 @@ class Game {
   // --- Network Event Handlers ---
 
   onRoomCreated(data) {
+    if (!this.transitionState('lobby')) {
+      console.warn('[Game] Cannot transition to lobby from current state:', this.state);
+      return;
+    }
     this.isHost = true;
     this.ui.showScreen('lobby');
-    this.state = 'lobby';
     this.updateRoomCodeDisplay(data.code);
   }
 
@@ -595,8 +703,9 @@ class Game {
 
     // Show lobby if not already there
     if (this.state === 'menu') {
-      this.ui.showScreen('lobby');
-      this.state = 'lobby';
+      if (this.transitionState('lobby')) {
+        this.ui.showScreen('lobby');
+      }
     }
 
     this.ui.updateLobby(data);
@@ -610,6 +719,7 @@ class Game {
     // Network sequence tracking
     this.lastServerSeq = -1;
     this.ui.showScreen('menu');
+    // Force state to menu (kicked can happen from any state)
     this.state = 'menu';
 
     const errorEl = document.getElementById('menu-error');
@@ -620,7 +730,13 @@ class Game {
 
   onCountdown(count) {
     console.log('[Game] onCountdown:', count);
-    this.state = 'countdown';
+
+    // Validate state transition (only from lobby, or already in countdown)
+    if (this.state !== 'countdown' && !this.transitionState('countdown')) {
+      console.warn('[Game] Cannot start countdown from current state:', this.state);
+      return;
+    }
+
     this.ui.showScreen('game');
 
     const overlay = document.getElementById('countdown-overlay');
@@ -651,9 +767,21 @@ class Game {
       settings: data?.settings
     });
 
-    this.state = 'playing';
+    // Validate state transition
+    if (!this.transitionState('playing')) {
+      console.warn('[Game] Cannot start game from current state:', this.state);
+      return;
+    }
+
     this.lastServerSeq = -1; // Reset sequence for new game
+    this.isSpectating = false; // Reset spectator mode for new game
     console.log('[Game] State set to playing, myId:', this.myId);
+
+    // Remove spectating class from arena
+    const arena = document.getElementById('arena');
+    if (arena) {
+      arena.classList.remove('spectating');
+    }
 
     // Hide countdown overlay
     const overlay = document.getElementById('countdown-overlay');
@@ -695,7 +823,14 @@ class Game {
 
   onCountdownCancelled(reason) {
     console.log('[Game] Countdown cancelled:', reason);
-    this.state = 'lobby';
+
+    // Validate state transition
+    if (!this.transitionState('lobby')) {
+      console.warn('[Game] Cannot return to lobby from current state:', this.state);
+      // Force state anyway since countdown was cancelled
+      this.state = 'lobby';
+    }
+
     this.ui.showScreen('lobby');
 
     // Hide countdown overlay
@@ -709,7 +844,11 @@ class Game {
   }
 
   onGamePaused(pausedBy) {
-    this.state = 'paused';
+    // Validate state transition
+    if (!this.transitionState('paused')) {
+      console.warn('[Game] Cannot pause from current state:', this.state);
+      return;
+    }
 
     const overlay = document.getElementById('pause-overlay');
     const pausedByText = document.getElementById('paused-by-text');
@@ -725,7 +864,11 @@ class Game {
   }
 
   onGameResumed(resumedBy) {
-    this.state = 'playing';
+    // Validate state transition
+    if (!this.transitionState('playing')) {
+      console.warn('[Game] Cannot resume from current state:', this.state);
+      return;
+    }
 
     const overlay = document.getElementById('pause-overlay');
     if (overlay) {
@@ -753,7 +896,12 @@ class Game {
   }
 
   onGameOver(data) {
-    this.state = 'gameover';
+    // Validate state transition
+    if (!this.transitionState('gameover')) {
+      console.warn('[Game] Cannot transition to gameover from current state:', this.state);
+      // Force state anyway since game is over
+      this.state = 'gameover';
+    }
     this.ui.showScreen('gameover');
 
     // Update winner text
@@ -814,19 +962,14 @@ class Game {
   }
 
   onDisconnect() {
+    console.log('[Game] onDisconnect called, current state:', this.state);
+
     // Stop the game loop
-    this.running = false;
+    this.stopGameLoop();
 
-    // Clear any pending animation frame
-    if (this.animationFrameId) {
-      cancelAnimationFrame(this.animationFrameId);
-      this.animationFrameId = null;
-    }
-
-    // Reset and cleanup input listeners
+    // Reset input state but DON'T destroy listeners - they'll be needed on reconnect
     if (this.input) {
-      this.input.reset();  // Clear any pending inputs before destroy
-      this.input.destroy();
+      this.input.reset();
     }
 
     // Clear renderer
@@ -834,29 +977,114 @@ class Game {
       this.renderer.clear();
     }
 
-    // Cleanup UI event listeners to prevent memory leaks, then rebind menu events
-    // so users can still create/join rooms after reconnection
-    if (this.ui) {
-      this.ui.cleanup();
-      // Rebind all UI events for fresh state after disconnect
-      this.ui.bindMenuEvents();
-      this.ui.bindLobbyEvents();
-      this.ui.bindGameEvents();
+    // Clear effects
+    if (this.effects) {
+      this.effects.clear();
     }
 
     this.ui.showScreen('menu');
+    // Force state to menu on disconnect
     this.state = 'menu';
-    this.roomCode = null;
-    this.lobbyData = null;
     this.localPlayer = null;
     this.serverState = null;
     this.prevServerState = null;
     this.lastServerSeq = -1;
+    this.isSpectating = false;
+
+    // Remove spectating class from arena
+    const arena = document.getElementById('arena');
+    if (arena) {
+      arena.classList.remove('spectating');
+    }
+    // Note: roomCode and lobbyData are preserved for potential reconnection
 
     const errorEl = document.getElementById('menu-error');
     if (errorEl) {
       errorEl.textContent = 'Disconnected from server';
     }
+  }
+
+  // Called by network when reconnection is successful
+  onReconnect() {
+    console.log('[Game] onReconnect called, current state:', this.state);
+
+    // Validate that we can restore state
+    const canRestore = this.validateReconnectState();
+
+    if (!canRestore) {
+      console.log('[Game] Cannot restore previous state, staying in menu');
+      // Clear any stale state
+      this.roomCode = null;
+      this.lobbyData = null;
+      this.isHost = false;
+      return;
+    }
+
+    // Restart the game loop
+    this.startGameLoop();
+
+    console.log('[Game] Reconnect complete, waiting for server state');
+  }
+
+  // Validate that the game state can be restored on reconnect
+  validateReconnectState() {
+    // Must have room code and player name stored in network
+    if (!this.network.roomCode || !this.network.playerName) {
+      console.log('[Game] No room/player info to restore');
+      return false;
+    }
+
+    // Must be connected
+    if (!this.network.connected) {
+      console.log('[Game] Not connected, cannot restore');
+      return false;
+    }
+
+    return true;
+  }
+
+  // Called when leaving the game voluntarily (quit button, etc.)
+  leaveGame() {
+    console.log('[Game] leaveGame called');
+
+    // Clean up game state
+    this.localPlayer = null;
+    this.serverState = null;
+    this.prevServerState = null;
+    this.lastServerSeq = -1;
+    this.roomCode = null;
+    this.lobbyData = null;
+    this.isHost = false;
+    this.isSpectating = false;
+
+    // Remove spectating class from arena
+    const arena = document.getElementById('arena');
+    if (arena) {
+      arena.classList.remove('spectating');
+    }
+
+    // Clear network stored state
+    this.network.roomCode = null;
+    this.network.playerName = null;
+
+    // Reset input
+    if (this.input) {
+      this.input.reset();
+    }
+
+    // Clear effects
+    if (this.effects) {
+      this.effects.clear();
+    }
+
+    // Clear renderer
+    if (this.renderer) {
+      this.renderer.clear();
+    }
+
+    // Force state to menu
+    this.state = 'menu';
+    this.ui.showScreen('menu');
   }
 
   // --- UI Helpers ---
@@ -893,9 +1121,79 @@ class Game {
     }
   }
 
+  // Update FPS display
+  updateFpsDisplay() {
+    const fpsDisplay = document.getElementById('fps-display');
+    if (!fpsDisplay) return;
+
+    if (this.fpsHistory.length === 0) {
+      fpsDisplay.textContent = '-- FPS';
+      fpsDisplay.className = 'debug-info';
+      return;
+    }
+
+    // Calculate average FPS from history
+    const avgFps = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
+    const roundedFps = Math.round(avgFps);
+
+    fpsDisplay.textContent = `${roundedFps} FPS`;
+
+    // Color code based on performance
+    fpsDisplay.classList.remove('good', 'warning', 'bad');
+    if (roundedFps >= 55) {
+      fpsDisplay.classList.add('good');
+    } else if (roundedFps >= 30) {
+      fpsDisplay.classList.add('warning');
+    } else {
+      fpsDisplay.classList.add('bad');
+    }
+  }
+
+  // --- Cleanup ---
+
+  // Full cleanup of all game resources and event listeners
+  // Called when the game is being destroyed (e.g., page unload)
+  destroy() {
+    console.log('[Game] destroy called');
+
+    // Stop the game loop
+    this.stopGameLoop();
+
+    // Cleanup input listeners
+    if (this.input) {
+      this.input.destroy();
+    }
+
+    // Cleanup UI listeners
+    if (this.ui) {
+      this.ui.cleanup();
+    }
+
+    // Cleanup document-level listeners
+    this._cleanupDocumentListeners();
+
+    // Cleanup network
+    if (this.network) {
+      this.network.destroy();
+    }
+
+    // Clear effects
+    if (this.effects) {
+      this.effects.clear();
+    }
+
+    // Clear renderer
+    if (this.renderer) {
+      this.renderer.clear();
+    }
+  }
+
   // --- Event Listeners Setup ---
 
   setupUIListeners() {
+    // Track document-level event listeners for cleanup
+    this._documentListeners = this._documentListeners || [];
+
     // Resume audio context on first user interaction
     const resumeAudio = async () => {
       if (!this.audioInitialized) {
@@ -904,28 +1202,56 @@ class Game {
         try {
           await this.audio.init();
           this.audio.resume();
-          document.removeEventListener('click', resumeAudio);
-          document.removeEventListener('keydown', resumeAudio);
+          // Remove from tracked listeners and document
+          this._removeDocumentListener('click', resumeAudio);
+          this._removeDocumentListener('keydown', resumeAudio);
         } catch (err) {
           console.error('[Game] Audio init failed:', err);
           // Reset flag on failure so it can be retried
           this.audioInitialized = false;
           // Still remove listeners to prevent infinite retry
-          document.removeEventListener('click', resumeAudio);
-          document.removeEventListener('keydown', resumeAudio);
+          this._removeDocumentListener('click', resumeAudio);
+          this._removeDocumentListener('keydown', resumeAudio);
         }
       }
     };
 
-    // Set up audio resume on any interaction
-    document.addEventListener('click', resumeAudio);
-    document.addEventListener('keydown', resumeAudio);
+    // Set up audio resume on any interaction (tracked for cleanup)
+    this._addDocumentListener('click', resumeAudio);
+    this._addDocumentListener('keydown', resumeAudio);
 
     // Set up controls menu
     this.setupControlsMenu();
 
+    // Set up how to play modal
+    this.setupHowToPlayModal();
+
     // Note: Button event listeners are handled by UI class (ui.js)
     // to avoid duplicate handlers
+  }
+
+  // Track and add a document-level event listener
+  _addDocumentListener(event, handler) {
+    document.addEventListener(event, handler);
+    this._documentListeners.push({ event, handler });
+  }
+
+  // Remove a tracked document-level event listener
+  _removeDocumentListener(event, handler) {
+    document.removeEventListener(event, handler);
+    this._documentListeners = this._documentListeners.filter(
+      l => !(l.event === event && l.handler === handler)
+    );
+  }
+
+  // Remove all tracked document-level event listeners
+  _cleanupDocumentListeners() {
+    if (this._documentListeners) {
+      for (const { event, handler } of this._documentListeners) {
+        document.removeEventListener(event, handler);
+      }
+      this._documentListeners = [];
+    }
   }
 
   // --- Controls Menu ---
@@ -1134,6 +1460,94 @@ class Game {
     resetBtn?.addEventListener('click', () => {
       controls.reset();
       renderControls();
+    });
+  }
+
+  // --- How to Play Modal ---
+
+  setupHowToPlayModal() {
+    const modal = document.getElementById('how-to-play-modal');
+    const openBtn = document.getElementById('how-to-play-btn');
+    const closeBtn = document.getElementById('close-how-to-play-btn');
+
+    if (!modal || !openBtn) return;
+
+    // Prevent duplicate setup
+    if (this._howToPlayModalSetup) return;
+    this._howToPlayModalSetup = true;
+
+    // State for accessibility
+    this._howToPlayModal = {
+      previouslyFocusedElement: null
+    };
+
+    const modalState = this._howToPlayModal;
+
+    // Focus trap handler for accessibility
+    const handleFocusTrap = (e) => {
+      if (e.key !== 'Tab') return;
+
+      const focusableElements = modal.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      const firstFocusable = focusableElements[0];
+      const lastFocusable = focusableElements[focusableElements.length - 1];
+
+      if (e.shiftKey) {
+        // Shift + Tab
+        if (document.activeElement === firstFocusable) {
+          e.preventDefault();
+          lastFocusable.focus();
+        }
+      } else {
+        // Tab
+        if (document.activeElement === lastFocusable) {
+          e.preventDefault();
+          firstFocusable.focus();
+        }
+      }
+    };
+
+    // Close on Escape key
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        closeModal();
+      }
+    };
+
+    // Close modal function
+    const closeModal = () => {
+      modal.classList.remove('active');
+      document.removeEventListener('keydown', handleFocusTrap);
+      document.removeEventListener('keydown', handleEscape);
+      // Return focus to the element that opened the modal for accessibility
+      if (modalState.previouslyFocusedElement) {
+        modalState.previouslyFocusedElement.focus();
+      }
+    };
+
+    // Open modal
+    openBtn.addEventListener('click', () => {
+      // Guard against duplicate listeners if modal is already open
+      if (modal.classList.contains('active')) return;
+
+      modalState.previouslyFocusedElement = document.activeElement;
+      modal.classList.add('active');
+      document.addEventListener('keydown', handleFocusTrap);
+      document.addEventListener('keydown', handleEscape);
+      // Focus first focusable element in modal for accessibility
+      const firstFocusable = modal.querySelector('button:not([disabled]), [href], input:not([disabled])');
+      if (firstFocusable) {
+        firstFocusable.focus();
+      }
+    });
+
+    // Close modal on button click
+    closeBtn?.addEventListener('click', closeModal);
+
+    // Close modal on backdrop click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
     });
   }
 }

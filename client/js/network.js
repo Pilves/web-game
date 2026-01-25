@@ -62,8 +62,12 @@ export class Network {
       this.removeGameHandlers();
       this.setupHandlers();
 
+      // Notify game of reconnection for state validation
+      this.game.onReconnect();
+
       // Try to rejoin previous room if we have roomCode and playerName
-      if (this.roomCode && this.playerName) {
+      // and game has validated that state can be restored
+      if (this.roomCode && this.playerName && this.game.validateReconnectState()) {
         console.log('[Network] Attempting to rejoin room:', this.roomCode);
         // Prevent user interaction during rejoin (MED-14 fix)
         this.rejoining = true;
@@ -72,9 +76,14 @@ export class Network {
         } catch (error) {
           console.error('[Network] Failed to rejoin room:', error);
           this.game.ui?.showError('Failed to rejoin room after reconnection');
+          // Clear stored state on failure
+          this.roomCode = null;
+          this.playerName = null;
         } finally {
           this.rejoining = false;
         }
+      } else {
+        console.log('[Network] No valid room state to restore');
       }
     };
     this.socket.on('reconnect', this.handlers['reconnect']);

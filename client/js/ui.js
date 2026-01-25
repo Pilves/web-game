@@ -6,6 +6,7 @@ export class UI {
     this.pendingTransition = null;
     this.copyTimeout = null;
     this.copyInProgress = false; // Guard against rapid clicks during async clipboard operations
+    this.warningPlayed = false; // Track if 30-second warning sound has been played
     this.boundHandlers = {
       menu: [],
       lobby: [],
@@ -182,7 +183,7 @@ export class UI {
     }
   }
 
-  updateHUD(state) {
+  updateHUD(state, isSpectating = false) {
     if (!state) return;
 
     // Find local player data
@@ -190,6 +191,9 @@ export class UI {
     if (!playerData) return;
 
     const [id, x, y, facing, flashlight, hearts, hasAmmo, stunned, invincible] = playerData;
+
+    // Update spectating indicator
+    this.updateSpectatingIndicator(isSpectating);
 
     // Update hearts display
     // Note: Heart symbols are rendered using Unicode characters. Spacing between hearts
@@ -221,6 +225,14 @@ export class UI {
       // Add warning class when time is low
       const isWarning = state.time <= 30;
       timerDisplay.classList.toggle('warning', isWarning);
+      // Play warning sound once when crossing the 30-second threshold
+      if (isWarning && !this.warningPlayed) {
+        this.warningPlayed = true;
+        this.game.audio?.play('warning');
+      } else if (!isWarning) {
+        // Reset flag when timer is above 30 seconds (for new rounds)
+        this.warningPlayed = false;
+      }
       // Enable aria-live for screen readers when time is critical
       timerDisplay.setAttribute('aria-live', isWarning ? 'polite' : 'off');
       timerDisplay.setAttribute('aria-label', `${minutes} minutes ${seconds} seconds remaining`);
@@ -275,6 +287,31 @@ export class UI {
       item.appendChild(heartsSpan);
 
       scoreboard.appendChild(item);
+    }
+  }
+
+  updateSpectatingIndicator(isSpectating) {
+    // Find or create spectating indicator element
+    let indicator = document.getElementById('spectating-indicator');
+
+    if (isSpectating) {
+      if (!indicator) {
+        // Create indicator if it doesn't exist
+        indicator = document.createElement('div');
+        indicator.id = 'spectating-indicator';
+        indicator.className = 'spectating-indicator';
+        indicator.textContent = 'SPECTATING';
+        indicator.setAttribute('aria-live', 'polite');
+
+        // Add to HUD top
+        const hudLeft = document.getElementById('hud-left');
+        if (hudLeft) {
+          hudLeft.appendChild(indicator);
+        }
+      }
+      indicator.style.display = 'block';
+    } else if (indicator) {
+      indicator.style.display = 'none';
     }
   }
 
@@ -653,6 +690,13 @@ export class UI {
       this.copyTimeout = null;
     }
     this.copyInProgress = false;
+    this.warningPlayed = false;
+
+    // Remove spectating indicator if it exists
+    const spectatingIndicator = document.getElementById('spectating-indicator');
+    if (spectatingIndicator) {
+      spectatingIndicator.remove();
+    }
 
     // Remove all bound event listeners
     for (const category of Object.values(this.boundHandlers)) {

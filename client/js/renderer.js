@@ -36,7 +36,7 @@ export class Renderer {
       const el = document.createElement('div');
       el.className = 'sound-ripple';
       this.arena.appendChild(el);
-      this.ripplePool.push({ el, animating: false });
+      this.ripplePool.push({ el, animating: false, timeoutId: null });
     }
 
     // Pre-allocate impact flash elements (LOW-24)
@@ -45,7 +45,7 @@ export class Renderer {
       el.className = 'impact-flash';
       el.style.display = 'none';
       this.arena.appendChild(el);
-      this.impactFlashPool.push({ el, active: false });
+      this.impactFlashPool.push({ el, active: false, timeoutId: null });
     }
   }
 
@@ -85,7 +85,7 @@ export class Renderer {
     // Render players
     if (currState.p) {
       for (const pData of currState.p) {
-        const [id, x, y, facing, flashlight, hearts, hasAmmo, stunned, invincible] = pData;
+        const [id, x, y, facing, flashlight, hearts, hasAmmo, stunned, invincible, flashlightOnSince] = pData;
         // Use String(id) for consistent type handling - Object.keys() returns strings
         currentPlayerIds.add(String(id));
 
@@ -109,7 +109,7 @@ export class Renderer {
           hearts,
           hasAmmo,
           stunned
-        });
+        }, flashlightOnSince);
       }
     }
 
@@ -141,7 +141,7 @@ export class Renderer {
     }
   }
 
-  renderPlayer(id, x, y, facing, flashlightOn, invincible, playerData) {
+  renderPlayer(id, x, y, facing, flashlightOn, invincible, playerData, flashlightOnSince = 0) {
     let cached = this.playerElements[id];
 
     // Validate cached element is still in DOM
@@ -222,6 +222,11 @@ export class Renderer {
         }
       }
     }
+
+    // Flashlight flickering effect (when on for too long)
+    const shouldFlicker = flashlightOn && flashlightOnSince > 0 &&
+      (Date.now() - flashlightOnSince >= CONFIG.FLASHLIGHT_FLICKER_THRESHOLD);
+    el.classList.toggle('flashlight-flickering', shouldFlicker);
 
     // Invincibility effect
     el.classList.toggle('invincible', !!invincible);
@@ -356,10 +361,10 @@ export class Renderer {
       // Show/hide based on active state
       if (active) {
         el.style.display = 'block';
-        // LOW-21: Centering calculation uses PICKUP_SIZE/2 to center the element
-        // at the pickup's (x,y) coordinate. This is intentional as pickups are
-        // positioned by their center point, not top-left corner.
-        el.style.transform = `translate3d(${x - CONFIG.PICKUP_SIZE / 2}px, ${y - CONFIG.PICKUP_SIZE / 2}px, 0)`;
+        // Use left/top for positioning instead of transform (transform is used by float animation)
+        // Centering calculation uses PICKUP_SIZE/2 to center the element at the pickup's (x,y) coordinate
+        el.style.left = `${x - CONFIG.PICKUP_SIZE / 2}px`;
+        el.style.top = `${y - CONFIG.PICKUP_SIZE / 2}px`;
         // HIGH-5: CSS expects pickups at z-index 20
         el.style.zIndex = 20 + Math.floor(y / 100);
       } else {
@@ -400,6 +405,11 @@ export class Renderer {
     if (!poolItem) {
       poolItem = this.ripplePool[this.rippleIndex];
       this.rippleIndex = (this.rippleIndex + 1) % this.ripplePool.length;
+      // Cancel previous timeout to prevent race condition
+      if (poolItem.timeoutId !== null) {
+        clearTimeout(poolItem.timeoutId);
+        this.pendingTimeouts.delete(poolItem.timeoutId);
+      }
     }
 
     const el = poolItem.el;
@@ -415,9 +425,11 @@ export class Renderer {
     const timeoutId = setTimeout(() => {
       el.classList.remove('active');
       poolItem.animating = false;
+      poolItem.timeoutId = null;
       // Remove from pending timeouts Set (O(1) operation)
       this.pendingTimeouts.delete(timeoutId);
     }, 500);
+    poolItem.timeoutId = timeoutId;
     this.pendingTimeouts.add(timeoutId);
   }
 
@@ -444,13 +456,18 @@ export class Renderer {
         el.className = 'impact-flash';
         el.style.display = 'none';
         this.arena.appendChild(el);
-        poolItem = { el, active: false };
+        poolItem = { el, active: false, timeoutId: null };
         this.impactFlashPool.push(poolItem);
       } else {
         // Pool at max size - reuse oldest active element (first in array)
         poolItem = this.impactFlashPool[0];
         // Move to end of array to implement LRU behavior
         this.impactFlashPool.push(this.impactFlashPool.shift());
+        // Cancel previous timeout to prevent race condition
+        if (poolItem.timeoutId !== null) {
+          clearTimeout(poolItem.timeoutId);
+          this.pendingTimeouts.delete(poolItem.timeoutId);
+        }
         console.warn('[Renderer] Impact flash pool exhausted, reusing oldest element');
       }
     }
@@ -469,8 +486,10 @@ export class Renderer {
     const timeoutId = setTimeout(() => {
       el.style.display = 'none';
       poolItem.active = false;
+      poolItem.timeoutId = null;
       this.pendingTimeouts.delete(timeoutId);
     }, 150);
+    poolItem.timeoutId = timeoutId;
     this.pendingTimeouts.add(timeoutId);
   }
 
@@ -502,15 +521,35 @@ export class Renderer {
   cleanupPlayer(id) {
     const cached = this.playerElements[id];
     if (cached) {
-      cached.root.remove();
+      // Remove from DOM
+      if (cached.root && cached.root.parentNode) {
+        cached.root.remove();
+      }
+      // Null out references to prevent memory leaks
+      cached.root = null;
+      cached.body = null;
+      cached.direction = null;
+      cached.cone = null;
       delete this.playerElements[id];
     }
   }
 
   // Clear all pickup elements
   clearPickups() {
+    if (!this.arena) return;
+    // Remove from DOM using tracked references (more reliable than querySelectorAll)
+    for (const id of Object.keys(this.pickupElements)) {
+      const el = this.pickupElements[id];
+      if (el && el.parentNode) {
+        el.remove();
+      }
+    }
+    // Also query DOM in case any elements weren't tracked
     const pickups = this.arena.querySelectorAll('[id^="pickup-"]');
     pickups.forEach(el => el.remove());
+    // Clear tracking objects
+    this.pickupElements = {};
+    this.trackedPickupIds.clear();
   }
 
   // Clear all rendered elements (on game end)
@@ -527,9 +566,8 @@ export class Renderer {
     }
 
     // Clear all pickups (including tracked elements)
+    // Note: clearPickups() now handles clearing pickupElements and trackedPickupIds
     this.clearPickups();
-    this.pickupElements = {};
-    this.trackedPickupIds = new Set();
 
     // Hide all projectiles
     this.projectilePool.forEach(p => {
@@ -542,12 +580,50 @@ export class Renderer {
     this.ripplePool.forEach(poolItem => {
       poolItem.el.classList.remove('active');
       poolItem.animating = false;
+      poolItem.timeoutId = null;
     });
+    this.rippleIndex = 0;
 
     // Reset all impact flashes (LOW-24)
     this.impactFlashPool.forEach(poolItem => {
       poolItem.el.style.display = 'none';
       poolItem.active = false;
+      poolItem.timeoutId = null;
     });
+  }
+
+  // Fully destroy the renderer, removing all pool elements from DOM
+  destroy() {
+    // First clear all state and timeouts
+    this.clear();
+
+    // Remove all pool elements from DOM
+    this.projectilePool.forEach(poolItem => {
+      if (poolItem.el && poolItem.el.parentNode) {
+        poolItem.el.remove();
+      }
+      poolItem.el = null;
+    });
+    this.projectilePool = [];
+
+    this.ripplePool.forEach(poolItem => {
+      if (poolItem.el && poolItem.el.parentNode) {
+        poolItem.el.remove();
+      }
+      poolItem.el = null;
+    });
+    this.ripplePool = [];
+
+    this.impactFlashPool.forEach(poolItem => {
+      if (poolItem.el && poolItem.el.parentNode) {
+        poolItem.el.remove();
+      }
+      poolItem.el = null;
+    });
+    this.impactFlashPool = [];
+
+    // Clear game reference
+    this.game = null;
+    this.arena = null;
   }
 }

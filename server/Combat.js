@@ -396,9 +396,12 @@ function updateProjectiles(projectiles, dt, obstacles, players, arenaInset = 0) 
     _updatedProjectiles.push(projectile);
   }
 
+  // Return copies of the arrays to avoid shared array mutation race conditions.
+  // Callers may hold onto or mutate these arrays, and returning the shared
+  // arrays directly would cause issues when the next call clears them.
   return {
-    updatedProjectiles: _updatedProjectiles,
-    events: _events,
+    updatedProjectiles: _updatedProjectiles.slice(),
+    events: _events.slice(),
   };
 }
 
