@@ -1,9 +1,13 @@
 const express = require('express');
 const http = require('http');
+const compression = require('compression');
 const { Server } = require('socket.io');
 const GameManager = require('./GameManager');
 
 const app = express();
+
+// Enable Gzip compression for all responses (reduces bandwidth by 60-70%)
+app.use(compression());
 const server = http.createServer(app);
 // Parse CORS origins from environment variable
 // Supports single origin or comma-separated list of origins

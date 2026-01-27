@@ -73,8 +73,10 @@ class Game {
     // Audio context resume flag
     this.audioInitialized = false;
 
-    // FPS tracking
-    this.fpsHistory = [];
+    // FPS tracking with circular buffer (avoids O(n) Array.shift())
+    this.fpsHistory = new Float32Array(60);
+    this.fpsHistoryIndex = 0;
+    this.fpsHistoryCount = 0;
     this.fpsLastUpdate = 0;
     this.fpsUpdateInterval = 250; // Update FPS display every 250ms
 
@@ -177,14 +179,12 @@ class Game {
     // Cap dt to prevent large jumps
     const cappedDt = Math.min(dt, 0.1);
 
-    // Track FPS
+    // Track FPS using circular buffer (O(1) instead of O(n) shift)
     if (dt > 0) {
       const instantFps = 1 / dt;
-      this.fpsHistory.push(instantFps);
-      // Keep last 60 samples for averaging
-      if (this.fpsHistory.length > 60) {
-        this.fpsHistory.shift();
-      }
+      this.fpsHistory[this.fpsHistoryIndex] = instantFps;
+      this.fpsHistoryIndex = (this.fpsHistoryIndex + 1) % 60;
+      if (this.fpsHistoryCount < 60) this.fpsHistoryCount++;
     }
 
     // Update FPS display periodically
@@ -211,7 +211,7 @@ class Game {
         this.lastInputSendTime = now;
       }
 
-      if (shouldLog && input) {
+      if (CONFIG.DEBUG && shouldLog && input) {
         console.log('[Game] Playing state - Input:', {
           up: input.up, down: input.down, left: input.left, right: input.right,
           facing: input.facing?.toFixed(2),
@@ -219,7 +219,7 @@ class Game {
           hasServerState: !!this.serverState,
           localPlayerPos: this.localPlayer ? `(${this.localPlayer.x?.toFixed(0)}, ${this.localPlayer.y?.toFixed(0)})` : 'N/A'
         });
-      } else if (shouldLog && this.isSpectating) {
+      } else if (CONFIG.DEBUG && shouldLog && this.isSpectating) {
         console.log('[Game] Spectating - watching game');
       }
 
@@ -237,7 +237,7 @@ class Game {
           this.localPlayer
         );
       }
-    } else if (shouldLog && this.state !== 'menu') {
+    } else if (CONFIG.DEBUG && shouldLog && this.state !== 'menu') {
       console.log('[Game] Current state:', this.state, '| myId:', this.myId);
     }
 
@@ -274,27 +274,36 @@ class Game {
     }
     this.lastServerSeq = state.seq;
 
-    // Debug: log first state and every 20th after
-    if (!this._stateCount) this._stateCount = 0;
-    this._stateCount++;
-    if (this._stateCount === 1 || this._stateCount % 20 === 0) {
-      console.log('[Game] onServerState #' + this._stateCount + ':', {
-        seq: state.seq,
-        gameState: state.s,
-        playerCount: state.p?.length,
-        pickups: state.k?.length || 0,
-        pickupsData: state.k,
-        projectiles: state.j?.length || 0,
-        projectilesData: state.j,
-        myId: this.myId?.substring(0, 8)
-      });
+    // Debug: log first state and every 20th after (only when DEBUG enabled)
+    if (CONFIG.DEBUG) {
+      if (!this._stateCount) this._stateCount = 0;
+      this._stateCount++;
+      if (this._stateCount === 1 || this._stateCount % 20 === 0) {
+        console.log('[Game] onServerState #' + this._stateCount + ':', {
+          seq: state.seq,
+          gameState: state.s,
+          playerCount: state.p?.length,
+          pickups: state.k?.length || 0,
+          pickupsData: state.k,
+          projectiles: state.j?.length || 0,
+          projectilesData: state.j,
+          myId: this.myId?.substring(0, 8)
+        });
+      }
     }
 
     // Process events BEFORE updating serverState to avoid stale state reference
     // Events reference player positions from the incoming state
     if (state.e && state.e.length > 0) {
+      // Build player Map once for O(1) lookups during event processing
+      const playerMap = new Map();
+      if (state.p) {
+        for (const p of state.p) {
+          if (p && p[0]) playerMap.set(p[0], p);
+        }
+      }
       for (const event of state.e) {
-        this.handleEvent(event, state);
+        this.handleEvent(event, state, playerMap);
       }
     }
 
@@ -347,14 +356,14 @@ class Game {
   }
 
   // Handle game events from server
-  handleEvent(event, state) {
+  handleEvent(event, state, playerMap = null) {
     const [type, ...data] = event;
 
     switch (type) {
       case 'hit': {
         // [victimId, attackerId]
         const victimId = data[0];
-        const victim = this.findPlayerInState(state, victimId);
+        const victim = this.findPlayerInState(state, victimId, playerMap);
         if (victim) {
           this.effects.showImpactFlash(victim.x, victim.y);
           this.effects.triggerScreenShake();
@@ -373,7 +382,7 @@ class Game {
       case 'death': {
         // [playerId]
         const playerId = data[0];
-        const player = this.findPlayerInState(state, playerId);
+        const player = this.findPlayerInState(state, playerId, playerMap);
         if (player) {
           // Play death sound
           if (this.localPlayer) {
@@ -389,7 +398,7 @@ class Game {
       case 'throw': {
         // [playerId]
         const playerId = data[0];
-        const player = this.findPlayerInState(state, playerId);
+        const player = this.findPlayerInState(state, playerId, playerMap);
         if (player) {
           this.effects.triggerMuzzleFlash();
 
@@ -459,10 +468,15 @@ class Game {
   }
 
   // Find player data in server state by ID
-  findPlayerInState(state, playerId) {
+  // Uses O(1) Map lookup if playerMap provided, otherwise O(n) array search
+  findPlayerInState(state, playerId, playerMap = null) {
     if (!state || !state.p) return null;
 
-    const playerData = state.p.find(p => p && p[0] === playerId);
+    // Use Map for O(1) lookup if available
+    const playerData = playerMap
+      ? playerMap.get(playerId)
+      : state.p.find(p => p && p[0] === playerId);
+
     if (!playerData || playerData.length < 10) return null;
 
     // Return object with named properties
@@ -1133,14 +1147,18 @@ class Game {
     const fpsDisplay = document.getElementById('fps-display');
     if (!fpsDisplay) return;
 
-    if (this.fpsHistory.length === 0) {
+    if (this.fpsHistoryCount === 0) {
       fpsDisplay.textContent = '-- FPS';
       fpsDisplay.className = 'debug-info';
       return;
     }
 
-    // Calculate average FPS from history
-    const avgFps = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
+    // Calculate average FPS from circular buffer
+    let sum = 0;
+    for (let i = 0; i < this.fpsHistoryCount; i++) {
+      sum += this.fpsHistory[i];
+    }
+    const avgFps = sum / this.fpsHistoryCount;
     const roundedFps = Math.round(avgFps);
 
     fpsDisplay.textContent = `${roundedFps} FPS`;

@@ -470,12 +470,12 @@ class GameRoom {
       this.projectiles,
       dt,
       CONSTANTS.OBSTACLES,
-      this.gamePlayersObject,
+      this.gamePlayers,  // Pass Map directly for more efficient iteration
       this.arenaInset
     );
 
-    // Create new array instead of reassigning to avoid reference issues
-    this.projectiles = projectileResult.updatedProjectiles.slice();
+    // updateProjectiles already returns a new array via .slice(), no need to slice again
+    this.projectiles = projectileResult.updatedProjectiles;
 
     // Add projectile events to events array
     for (const event of projectileResult.events) {
@@ -533,7 +533,7 @@ class GameRoom {
         };
 
         if (Physics.rectsCollide(playerRect, pickupRect)) {
-          console.log(`[GameRoom ${this.code}] Player ${player.name} picked up pillow ${pickup.id} at (${pickup.x}, ${pickup.y})`);
+          if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Player ${player.name} picked up pillow ${pickup.id} at (${pickup.x}, ${pickup.y})`);
 
           // Push event BEFORE updating pickup.active to avoid race condition
           // Include pickup position in event for client sync
@@ -680,15 +680,17 @@ class GameRoom {
   broadcastState() {
     const packet = this.buildStatePacket();
 
-    // Debug: log first broadcast and every 20th after
-    if (!this._broadcastCount) this._broadcastCount = 0;
-    this._broadcastCount++;
-    if (this._broadcastCount === 1 || this._broadcastCount % 20 === 0) {
-      console.log(`[GameRoom ${this.code}] Broadcast #${this._broadcastCount}:`, {
-        state: packet.s,
-        playerCount: packet.p?.length,
-        playerPositions: packet.p?.map(p => ({ id: p[0].substring(0, 8), x: p[1], y: p[2] }))
-      });
+    // Debug: log first broadcast and every 20th after (only when DEBUG enabled)
+    if (CONSTANTS.DEBUG) {
+      if (!this._broadcastCount) this._broadcastCount = 0;
+      this._broadcastCount++;
+      if (this._broadcastCount === 1 || this._broadcastCount % 20 === 0) {
+        console.log(`[GameRoom ${this.code}] Broadcast #${this._broadcastCount}:`, {
+          state: packet.s,
+          playerCount: packet.p?.length,
+          playerPositions: packet.p?.map(p => ({ id: p[0].substring(0, 8), x: p[1], y: p[2] }))
+        });
+      }
     }
 
     this.io.to(this.code).emit('state', packet);
@@ -824,11 +826,13 @@ class GameRoom {
       return;
     }
 
-    // Debug: log first input from each player
-    if (!this._inputReceived) this._inputReceived = new Set();
-    if (!this._inputReceived.has(playerId)) {
-      console.log(`[GameRoom ${this.code}] First input from player ${playerId.substring(0, 8)}:`, inputData);
-      this._inputReceived.add(playerId);
+    // Debug: log first input from each player (only when DEBUG enabled)
+    if (CONSTANTS.DEBUG) {
+      if (!this._inputReceived) this._inputReceived = new Set();
+      if (!this._inputReceived.has(playerId)) {
+        console.log(`[GameRoom ${this.code}] First input from player ${playerId.substring(0, 8)}:`, inputData);
+        this._inputReceived.add(playerId);
+      }
     }
 
     // Update movement input (with null check for input object)
@@ -866,7 +870,7 @@ class GameRoom {
         player.lastFlashlightToggle = now;
         // Track flashlight on time for flicker effect
         player.flashlightOnSince = player.flashlightOn ? now : 0;
-        console.log(`[GameRoom ${this.code}] Player ${playerId.substring(0, 8)} flashlight toggled to: ${player.flashlightOn}`);
+        if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Player ${playerId.substring(0, 8)} flashlight toggled to: ${player.flashlightOn}`);
       }
     }
 
@@ -889,7 +893,7 @@ class GameRoom {
     // Limit projectiles per room to prevent DOS
     const MAX_PROJECTILES = 50;
     if (this.projectiles.length >= MAX_PROJECTILES) {
-      console.log(`[GameRoom ${this.code}] Projectile limit reached, ignoring throw`);
+      if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Projectile limit reached, ignoring throw`);
       return;
     }
 
@@ -897,7 +901,7 @@ class GameRoom {
 
     // Check if player can throw
     if (!Combat.canThrow(player, now)) {
-      console.log(`[GameRoom ${this.code}] Player ${player.name} cannot throw:`, {
+      if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Player ${player.name} cannot throw:`, {
         hasAmmo: player.hasAmmo,
         cooldown: now - (player.lastThrowTime || 0),
         stunned: player.stunnedUntil > now
@@ -912,14 +916,14 @@ class GameRoom {
 
     // Check if projectile spawns inside an obstacle
     if (Combat.collidesWithObstacle(projectile, CONSTANTS.OBSTACLES)) {
-      console.log(`[GameRoom ${this.code}] Player ${player.name} projectile spawn blocked by obstacle`);
+      if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Player ${player.name} projectile spawn blocked by obstacle`);
       // Still consume ammo but don't create projectile (player is too close to obstacle)
       player.hasAmmo = false;
       player.lastThrowTime = now;
       return;
     }
 
-    console.log(`[GameRoom ${this.code}] Player ${player.name} threw projectile:`, projectile);
+    if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Player ${player.name} threw projectile:`, projectile);
 
     this.projectiles.push(projectile);
 

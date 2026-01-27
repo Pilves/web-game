@@ -23,6 +23,15 @@ export class Vision {
     // Cache DOM element references to avoid querySelector every frame
     this.playerElementCache = new Map();
     this.pickupElementCache = new Map();
+    // Cache visibility state to avoid unnecessary DOM class updates
+    this.playerVisibilityCache = new Map();
+    this.pickupVisibilityCache = new Map();
+
+    // Hysteresis constants to prevent jittery visibility at cone edges
+    // When becoming visible: use tighter threshold (must be clearly in cone)
+    // When becoming invisible: use looser threshold (must be clearly out of cone)
+    this.HYSTERESIS_ANGLE = 3; // degrees of buffer at cone edge
+    this.HYSTERESIS_RANGE = 15; // pixels of buffer at range edge
   }
 
   /**
@@ -48,6 +57,8 @@ export class Vision {
   clearCache() {
     this.playerElementCache?.clear();
     this.pickupElementCache?.clear();
+    this.playerVisibilityCache?.clear();
+    this.pickupVisibilityCache?.clear();
   }
 
   // Get cached player element or query and cache it
@@ -127,7 +138,10 @@ export class Vision {
 
       // Spectators see everything - all players are visible
       if (isSpectating) {
-        playerEl.classList.add('visible');
+        if (this.playerVisibilityCache.get(id) !== true) {
+          playerEl.classList.add('visible');
+          this.playerVisibilityCache.set(id, true);
+        }
         continue;
       }
 
@@ -139,14 +153,18 @@ export class Vision {
         flashlightOn: !!flashlight
       };
 
-      // Check visibility
-      const visible = this.isPlayerVisible(viewer, target, muzzleFlash);
+      // Check visibility (pass current state for hysteresis to prevent jitter)
+      const wasVisible = this.playerVisibilityCache.get(id) || false;
+      const visible = this.isPlayerVisible(viewer, target, muzzleFlash, wasVisible);
 
-      // Add/remove visible class
-      if (visible) {
-        playerEl.classList.add('visible');
-      } else {
-        playerEl.classList.remove('visible');
+      // Only update DOM if visibility changed (optimization)
+      if (wasVisible !== visible) {
+        if (visible) {
+          playerEl.classList.add('visible');
+        } else {
+          playerEl.classList.remove('visible');
+        }
+        this.playerVisibilityCache.set(id, visible);
       }
     }
 
@@ -161,30 +179,40 @@ export class Vision {
 
         // Inactive pickups should not be visible
         if (!active) {
-          pickupEl.classList.remove('visible');
+          if (this.pickupVisibilityCache.get(id) !== false) {
+            pickupEl.classList.remove('visible');
+            this.pickupVisibilityCache.set(id, false);
+          }
           continue;
         }
 
         // Spectators see everything - all active pickups are visible
         if (isSpectating) {
-          pickupEl.classList.add('visible');
+          if (this.pickupVisibilityCache.get(id) !== true) {
+            pickupEl.classList.add('visible');
+            this.pickupVisibilityCache.set(id, true);
+          }
           continue;
         }
 
-        // Check visibility (pickups don't have flashlights, simpler check)
-        const visible = this.isPointVisible(viewer, x, y, muzzleFlash);
+        // Check visibility (pass current state for hysteresis to prevent jitter)
+        const wasVisible = this.pickupVisibilityCache.get(id) || false;
+        const visible = this.isPointVisible(viewer, x, y, muzzleFlash, wasVisible);
 
-        // Add/remove visible class
-        if (visible) {
-          pickupEl.classList.add('visible');
-        } else {
-          pickupEl.classList.remove('visible');
+        // Only update DOM if visibility changed (optimization)
+        if (wasVisible !== visible) {
+          if (visible) {
+            pickupEl.classList.add('visible');
+          } else {
+            pickupEl.classList.remove('visible');
+          }
+          this.pickupVisibilityCache.set(id, visible);
         }
       }
     }
   }
 
-  isPlayerVisible(viewer, target, muzzleFlash) {
+  isPlayerVisible(viewer, target, muzzleFlash, wasVisible = false) {
     // During muzzle flash, everyone is visible
     if (muzzleFlash) {
       return true;
@@ -210,17 +238,29 @@ export class Vision {
     const dy = this.getWrappedDelta(viewer.y, target.y, CONFIG.ARENA_HEIGHT);
     const distance = Math.hypot(dx, dy);
 
-    // Check if target is within flashlight range
-    if (distance > CONFIG.FLASHLIGHT_RANGE) {
+    // Apply hysteresis to range check to prevent jitter at edge
+    // If currently visible, use larger range (harder to leave)
+    // If currently not visible, use smaller range (harder to enter)
+    const rangeThreshold = wasVisible
+      ? CONFIG.FLASHLIGHT_RANGE + this.HYSTERESIS_RANGE
+      : CONFIG.FLASHLIGHT_RANGE;
+
+    if (distance > rangeThreshold) {
       return false;
     }
 
     // Calculate angle to target using the same wrapped deltas
     const angleToTarget = Math.atan2(dy, dx);
     const angleDiff = normalizeAngle(angleToTarget - viewer.facing);
-    const halfConeRad = (CONFIG.FLASHLIGHT_ANGLE / 2) * (Math.PI / 180);
 
-    if (Math.abs(angleDiff) > halfConeRad) {
+    // Apply hysteresis to angle check to prevent jitter at cone edge
+    const hysteresisRad = (this.HYSTERESIS_ANGLE / 2) * (Math.PI / 180);
+    const halfConeRad = (CONFIG.FLASHLIGHT_ANGLE / 2) * (Math.PI / 180);
+    const angleThreshold = wasVisible
+      ? halfConeRad + hysteresisRad  // Harder to leave (wider cone)
+      : halfConeRad;                  // Normal cone to enter
+
+    if (Math.abs(angleDiff) > angleThreshold) {
       return false;
     }
 
@@ -228,7 +268,7 @@ export class Vision {
     return hasLineOfSight(viewer.x, viewer.y, target.x, target.y, CONFIG.OBSTACLES);
   }
 
-  isPointVisible(viewer, x, y, muzzleFlash) {
+  isPointVisible(viewer, x, y, muzzleFlash, wasVisible = false) {
     // During muzzle flash, everything is visible
     if (muzzleFlash) {
       return true;
@@ -249,17 +289,27 @@ export class Vision {
     const dy = this.getWrappedDelta(viewer.y, y, CONFIG.ARENA_HEIGHT);
     const distance = Math.hypot(dx, dy);
 
-    // Check if point is within flashlight range
-    if (distance > CONFIG.FLASHLIGHT_RANGE) {
+    // Apply hysteresis to range check
+    const rangeThreshold = wasVisible
+      ? CONFIG.FLASHLIGHT_RANGE + this.HYSTERESIS_RANGE
+      : CONFIG.FLASHLIGHT_RANGE;
+
+    if (distance > rangeThreshold) {
       return false;
     }
 
     // Calculate angle to point using the same wrapped deltas
     const angleToPoint = Math.atan2(dy, dx);
     const angleDiff = normalizeAngle(angleToPoint - viewer.facing);
-    const halfConeRad = (CONFIG.FLASHLIGHT_ANGLE / 2) * (Math.PI / 180);
 
-    if (Math.abs(angleDiff) > halfConeRad) {
+    // Apply hysteresis to angle check
+    const hysteresisRad = (this.HYSTERESIS_ANGLE / 2) * (Math.PI / 180);
+    const halfConeRad = (CONFIG.FLASHLIGHT_ANGLE / 2) * (Math.PI / 180);
+    const angleThreshold = wasVisible
+      ? halfConeRad + hysteresisRad
+      : halfConeRad;
+
+    if (Math.abs(angleDiff) > angleThreshold) {
       return false;
     }
 

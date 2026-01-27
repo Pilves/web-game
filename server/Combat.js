@@ -187,14 +187,16 @@ function canThrow(player, now) {
 /**
  * Check if a projectile hits any player
  * @param {Object} projectile - Projectile to check
- * @param {Object} players - Map of player ID to player objects
+ * @param {Map|Object} players - Map or Object of player ID to player objects
  * @returns {Object|null} Hit player or null
  */
 function checkProjectileHit(projectile, players) {
   const projRect = getProjectileRect(projectile);
   const now = Date.now();
 
-  for (const [playerId, player] of Object.entries(players)) {
+  // Support both Map and Object iteration (Map is more efficient)
+  const entries = players instanceof Map ? players : Object.entries(players);
+  for (const [playerId, player] of entries) {
 
     // Cannot hit yourself
     if (player.id === projectile.ownerId) {
@@ -393,9 +395,10 @@ function updateProjectiles(projectiles, dt, obstacles, players, arenaInset = 0) 
     // Check player collision
     const hitPlayer = checkProjectileHit(projectile, players);
     if (hitPlayer) {
-      // Find attacker - use Object.hasOwn() to safely check if player exists
-      // This avoids issues with inherited properties or prototype pollution
-      const attacker = Object.hasOwn(players, projectile.ownerId) ? players[projectile.ownerId] : null;
+      // Find attacker - support both Map and Object lookup
+      const attacker = players instanceof Map
+        ? players.get(projectile.ownerId) || null
+        : (Object.hasOwn(players, projectile.ownerId) ? players[projectile.ownerId] : null);
 
       // Handle the hit (pass obstacles and arenaInset for knockback collision resolution)
       const hitEvent = handleHit(hitPlayer, attacker, projectile, obstacles, arenaInset);

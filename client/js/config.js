@@ -6,8 +6,15 @@ if (typeof SHARED_CONSTANTS === 'undefined') {
   console.error('[Config] SHARED_CONSTANTS is undefined. Ensure /shared/constants.js is loaded before this module.');
 }
 
+// Debug mode - enable via URL param (?debug=1) or localStorage
+const urlParams = new URLSearchParams(window.location.search);
+const DEBUG = urlParams.get('debug') === '1' || localStorage.getItem('lightsout-debug') === '1';
+
 // Build CONFIG by spreading shared constants and adding client-only ones
 export const CONFIG = {
+  // Debug flag - controls verbose logging in hot paths
+  DEBUG,
+
   // Import all shared constants (loaded globally via script tag)
   // Note: PICKUP_SIZE (30) and FLASHLIGHT_FLICKER_THRESHOLD (10000) come from SHARED_CONSTANTS
   ...(typeof SHARED_CONSTANTS !== 'undefined' ? SHARED_CONSTANTS : {}),

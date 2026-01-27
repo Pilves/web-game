@@ -1,7 +1,13 @@
 // Server constants - imports shared and adds server-only constants
 const SHARED = require('../shared/constants');
 
+// Debug mode - set DEBUG=1 environment variable to enable verbose logging
+const DEBUG = process.env.DEBUG === '1' || process.env.DEBUG === 'true';
+
 const CONSTANTS = {
+  // Debug flag - controls verbose logging in hot paths
+  DEBUG,
+
   // Import all shared constants
   ...SHARED,
 

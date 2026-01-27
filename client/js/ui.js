@@ -13,6 +13,9 @@ export class UI {
       game: []
     };
 
+    // Cache screen elements to avoid querySelectorAll on every transition
+    this._screenElements = document.querySelectorAll('.screen');
+
     this.bindMenuEvents();
     this.bindLobbyEvents();
     this.bindGameEvents();
@@ -24,7 +27,7 @@ export class UI {
       clearTimeout(this.pendingTransition);
       this.pendingTransition = null;
       // Remove animation classes from all screens to cancel ongoing CSS animations
-      document.querySelectorAll('.screen').forEach(s => {
+      this._screenElements.forEach(s => {
         s.classList.remove('screen-fade-out', 'screen-fade-in');
       });
     }
@@ -46,8 +49,8 @@ export class UI {
       // After fade out, switch screens
       this.pendingTransition = setTimeout(() => {
         this.pendingTransition = null;
-        // Hide all screens
-        document.querySelectorAll('.screen').forEach(s => {
+        // Hide all screens (use cached elements)
+        this._screenElements.forEach(s => {
           s.classList.remove('active', 'screen-fade-out', 'screen-fade-in');
         });
 
@@ -56,8 +59,8 @@ export class UI {
         this.currentScreen = screenName;
       }, 200); // Slightly shorter than CSS animation for smoother transition
     } else {
-      // No current screen, just show the new one
-      document.querySelectorAll('.screen').forEach(s => {
+      // No current screen, just show the new one (use cached elements)
+      this._screenElements.forEach(s => {
         s.classList.remove('active', 'screen-fade-out', 'screen-fade-in');
       });
       newScreen.classList.add('active', 'screen-fade-in');

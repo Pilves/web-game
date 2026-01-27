@@ -58,7 +58,7 @@ export class Renderer {
     }
 
     this._renderCount++;
-    if (this._renderCount === 1 || this._renderCount % 60 === 0) {
+    if (CONFIG.DEBUG && (this._renderCount === 1 || this._renderCount % 60 === 0)) {
       console.log('[Renderer] render #' + this._renderCount + ':', {
         hasArena: !!this.arena,
         playerCount: currState.p?.length,
@@ -183,8 +183,12 @@ export class Renderer {
     el.style.transform = `translate3d(${x - CONFIG.PLAYER_SIZE / 2}px, ${y - CONFIG.PLAYER_SIZE / 2}px, 0)`;
 
     // Z-index based on Y position for depth sorting (HIGH-5: CSS expects players at 40)
-    // Use CSS-scale base value + small Y adjustment for depth within same layer
-    el.style.zIndex = 40 + Math.floor(y / 100);
+    // Only update z-index when Y crosses a 100px boundary (optimization)
+    const zBucket = Math.floor(y / 100);
+    if (cached.lastZBucket !== zBucket) {
+      el.style.zIndex = 40 + zBucket;
+      cached.lastZBucket = zBucket;
+    }
 
     // Rotation for direction indicator (use cached reference)
     // MED-20: Include translateY(-50%) to preserve vertical centering with rotation
@@ -340,7 +344,12 @@ export class Renderer {
       poolItem.el.style.display = 'block';
       poolItem.el.style.transform = `translate3d(${renderX - CONFIG.PROJECTILE_SIZE / 2}px, ${renderY - CONFIG.PROJECTILE_SIZE / 2}px, 0)`;
       // HIGH-5: CSS expects projectiles at z-index 30
-      poolItem.el.style.zIndex = 30 + Math.floor(renderY / 100);
+      // Only update z-index when Y crosses a 100px boundary
+      const zBucket = Math.floor(renderY / 100);
+      if (poolItem.lastZBucket !== zBucket) {
+        poolItem.el.style.zIndex = 30 + zBucket;
+        poolItem.lastZBucket = zBucket;
+      }
     }
 
     // Hide inactive projectiles
