@@ -643,6 +643,11 @@ export class UI {
         this.game.localPlayer = null;
         this.game.serverState = null;
         this.game.prevServerState = null;
+        // Transition game state from gameover to lobby
+        if (!this.game.transitionState('lobby')) {
+          // Force state if transition fails
+          this.game.state = 'lobby';
+        }
         this.showScreen('lobby');
       };
       playAgainBtn.addEventListener('click', playAgainHandler);

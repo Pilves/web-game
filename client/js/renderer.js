@@ -396,7 +396,13 @@ export class Renderer {
     const currentPickupIds = new Set();
 
     for (const pickup of pickups) {
-      const [id, x, y, active] = pickup;
+      // Support both array format [id, x, y, active] and object format {id, x, y, active}
+      let id, x, y, active;
+      if (Array.isArray(pickup)) {
+        [id, x, y, active] = pickup;
+      } else {
+        ({ id, x, y, active } = pickup);
+      }
       currentPickupIds.add(id);
 
       // Validate coordinates - skip pickups with invalid positions
