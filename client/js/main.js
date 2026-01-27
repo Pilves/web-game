@@ -784,6 +784,8 @@ class Game {
       playerCount_players: data?.players?.length,
       hasPickups_k: !!data?.k,
       hasPickups_pickups: !!data?.pickups,
+      pickupsData: data?.pickups,
+      pickupsFirstItem: data?.pickups?.[0],
       hasObstacles: !!data?.obstacles,
       settings: data?.settings
     });

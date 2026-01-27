@@ -409,6 +409,7 @@ class GameRoom {
 
     console.log(`[GameRoom ${this.code}] Starting game with ${gameStartData.players.length} players`);
     console.log(`[GameRoom ${this.code}] Player positions:`, gameStartData.players.map(p => ({ id: p[0].substring(0, 8), x: p[1], y: p[2] })));
+    console.log(`[GameRoom ${this.code}] Pickups in game-start:`, gameStartData.pickups);
 
     // Emit game start
     this.io.to(this.code).emit('game-start', gameStartData);
@@ -516,6 +517,9 @@ class GameRoom {
    * @param {Array} players - Cached array of player objects
    */
   checkPickupCollisions(players) {
+    // Debug log first few collision checks to diagnose pickup issues
+    if (!this._pickupCollisionLogCount) this._pickupCollisionLogCount = 0;
+
     for (const player of players) {
       // Skip players who: are disconnected, are dead, or already have ammo
       if (!player.connected || player.hearts <= 0 || player.hasAmmo) continue;
@@ -531,6 +535,15 @@ class GameRoom {
           width: CONSTANTS.PICKUP_SIZE,
           height: CONSTANTS.PICKUP_SIZE,
         };
+
+        // Debug: log proximity checks for players without ammo (first 10 checks)
+        if (CONSTANTS.DEBUG && this._pickupCollisionLogCount < 10) {
+          const dist = Math.hypot(player.x - pickup.x, player.y - pickup.y);
+          if (dist < 100) { // Only log when player is somewhat close
+            console.log(`[GameRoom ${this.code}] Collision check: player ${player.name} at (${Math.round(player.x)}, ${Math.round(player.y)}), pickup ${pickup.id} at (${Math.round(pickup.x)}, ${Math.round(pickup.y)}), dist=${Math.round(dist)}, hasAmmo=${player.hasAmmo}`);
+            this._pickupCollisionLogCount++;
+          }
+        }
 
         if (Physics.rectsCollide(playerRect, pickupRect)) {
           if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Player ${player.name} picked up pillow ${pickup.id} at (${pickup.x}, ${pickup.y})`);

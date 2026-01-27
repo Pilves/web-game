@@ -364,9 +364,31 @@ export class Renderer {
   renderPickups(pickups) {
     if (!pickups) return;
 
+    // Validate CONFIG.PICKUP_SIZE to prevent NaN positioning
+    const pickupSize = CONFIG.PICKUP_SIZE;
+    if (typeof pickupSize !== 'number' || !Number.isFinite(pickupSize) || pickupSize <= 0) {
+      console.error('[Renderer] Invalid CONFIG.PICKUP_SIZE:', pickupSize, '- using fallback 30');
+    }
+    const halfSize = (typeof pickupSize === 'number' && Number.isFinite(pickupSize) && pickupSize > 0)
+      ? pickupSize / 2
+      : 15; // fallback: 30 / 2 = 15
+
+    // Debug: always log first 10 pickups renders to diagnose positioning issue
     if (this._pickupLogCount === undefined) this._pickupLogCount = 0;
-    if (this._pickupLogCount < 5) {
-      console.log('[Renderer] renderPickups:', pickups.map(p => ({id: p[0], x: p[1], y: p[2], active: p[3]})));
+    if (this._pickupLogCount < 10) {
+      console.log('[Renderer] renderPickups raw:', pickups);
+      console.log('[Renderer] renderPickups type:', Array.isArray(pickups) ? 'array' : typeof pickups);
+      console.log('[Renderer] First pickup raw:', pickups[0]);
+      console.log('[Renderer] First pickup isArray:', Array.isArray(pickups[0]));
+      if (pickups[0]) {
+        console.log('[Renderer] First pickup values:', {
+          idx0: pickups[0][0],
+          idx1: pickups[0][1],
+          idx2: pickups[0][2],
+          idx3: pickups[0][3]
+        });
+      }
+      console.log('[Renderer] CONFIG.PICKUP_SIZE:', CONFIG.PICKUP_SIZE, 'halfSize:', halfSize);
       this._pickupLogCount++;
     }
 
@@ -397,8 +419,16 @@ export class Renderer {
         el.id = `pickup-${id}`;
         el.className = 'pillow-pickup';
         // Set initial position BEFORE appending to avoid flash at (0,0)
-        el.style.left = `${x - CONFIG.PICKUP_SIZE / 2}px`;
-        el.style.top = `${y - CONFIG.PICKUP_SIZE / 2}px`;
+        const leftVal = x - halfSize;
+        const topVal = y - halfSize;
+        // Log first 4 pickup creations to diagnose positioning
+        if (this._pickupCreateCount === undefined) this._pickupCreateCount = 0;
+        if (this._pickupCreateCount < 4) {
+          console.log(`[Renderer] Creating pickup ${id}: x=${x}, y=${y}, halfSize=${halfSize}, left=${leftVal}px, top=${topVal}px`);
+          this._pickupCreateCount++;
+        }
+        el.style.left = `${leftVal}px`;
+        el.style.top = `${topVal}px`;
         el.style.display = active ? 'block' : 'none';
         this.arena.appendChild(el);
         this.pickupElements[id] = el;
@@ -408,9 +438,9 @@ export class Renderer {
       if (active) {
         el.style.display = 'block';
         // Use left/top for positioning instead of transform (transform is used by float animation)
-        // Centering calculation uses PICKUP_SIZE/2 to center the element at the pickup's (x,y) coordinate
-        el.style.left = `${x - CONFIG.PICKUP_SIZE / 2}px`;
-        el.style.top = `${y - CONFIG.PICKUP_SIZE / 2}px`;
+        // Centering calculation uses halfSize to center the element at the pickup's (x,y) coordinate
+        el.style.left = `${x - halfSize}px`;
+        el.style.top = `${y - halfSize}px`;
         // HIGH-5: CSS expects pickups at z-index 20
         el.style.zIndex = 20 + Math.floor(y / 100);
       } else {

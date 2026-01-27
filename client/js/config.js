@@ -10,19 +10,39 @@ if (typeof SHARED_CONSTANTS === 'undefined') {
 const urlParams = new URLSearchParams(window.location.search);
 const DEBUG = urlParams.get('debug') === '1' || localStorage.getItem('lightsout-debug') === '1';
 
+// Get shared constants with fallbacks
+const sharedConsts = (typeof SHARED_CONSTANTS !== 'undefined' && SHARED_CONSTANTS && typeof SHARED_CONSTANTS === 'object')
+  ? SHARED_CONSTANTS
+  : {};
+
+// Log for debugging
+console.log('[Config] SHARED_CONSTANTS type:', typeof SHARED_CONSTANTS);
+console.log('[Config] SHARED_CONSTANTS value:', typeof SHARED_CONSTANTS !== 'undefined' ? SHARED_CONSTANTS : 'undefined');
+console.log('[Config] sharedConsts.PICKUP_SIZE:', sharedConsts.PICKUP_SIZE);
+
 // Build CONFIG by spreading shared constants and adding client-only ones
 export const CONFIG = {
   // Debug flag - controls verbose logging in hot paths
   DEBUG,
 
   // Import all shared constants (loaded globally via script tag)
-  // Note: PICKUP_SIZE (30) and FLASHLIGHT_FLICKER_THRESHOLD (10000) come from SHARED_CONSTANTS
-  ...(typeof SHARED_CONSTANTS !== 'undefined' ? SHARED_CONSTANTS : {}),
+  ...sharedConsts,
+
+  // Ensure critical values have fallbacks (in case SHARED_CONSTANTS is empty)
+  PICKUP_SIZE: sharedConsts.PICKUP_SIZE || 30,
+  PLAYER_SIZE: sharedConsts.PLAYER_SIZE || 40,
+  PROJECTILE_SIZE: sharedConsts.PROJECTILE_SIZE || 20,
+  ARENA_WIDTH: sharedConsts.ARENA_WIDTH || 1200,
+  ARENA_HEIGHT: sharedConsts.ARENA_HEIGHT || 800,
 
   // Client-only: Networking
   INPUT_SEND_RATE: 60,    // Hz - match physics tick
   INTERPOLATION_DELAY: 50, // ms - time between server updates
 };
+
+// Verify critical CONFIG values
+console.log('[Config] Final CONFIG.PICKUP_SIZE:', CONFIG.PICKUP_SIZE);
+console.log('[Config] Final CONFIG.PLAYER_SIZE:', CONFIG.PLAYER_SIZE);
 
 // Default key bindings
 export const DEFAULT_CONTROLS = {
