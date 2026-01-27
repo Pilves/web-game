@@ -6,7 +6,7 @@ export class Effects {
     this.rippleIndex = 0;
     this.flashPool = [];
     this.flashIndex = 0;
-    this.pendingTimeouts = [];
+    this.pendingTimeouts = new Set();
     this.initialized = false;
   }
 
@@ -64,7 +64,7 @@ export class Effects {
       el.classList.remove('active');
       this.removeTimeout(timeoutId);
     }, 500);
-    this.pendingTimeouts.push(timeoutId);
+    this.pendingTimeouts.add(timeoutId);
   }
 
   // Trigger muzzle flash (whole arena lights up briefly)
@@ -76,7 +76,7 @@ export class Effects {
       this.arena.classList.remove('muzzle-flash');
       this.removeTimeout(timeoutId);
     }, 100);
-    this.pendingTimeouts.push(timeoutId);
+    this.pendingTimeouts.add(timeoutId);
   }
 
   // Show impact flash at position (using object pool)
@@ -106,7 +106,7 @@ export class Effects {
       el.classList.remove('active');
       this.removeTimeout(timeoutId);
     }, 150);
-    this.pendingTimeouts.push(timeoutId);
+    this.pendingTimeouts.add(timeoutId);
   }
 
   // Trigger screen shake
@@ -118,7 +118,7 @@ export class Effects {
       this.arena.classList.remove('shake');
       this.removeTimeout(timeoutId);
     }, 200);
-    this.pendingTimeouts.push(timeoutId);
+    this.pendingTimeouts.add(timeoutId);
   }
 
   // Show death effect for a player element
@@ -133,7 +133,7 @@ export class Effects {
       playerElement.style.display = 'none';
       this.removeTimeout(timeoutId);
     }, 500);
-    this.pendingTimeouts.push(timeoutId);
+    this.pendingTimeouts.add(timeoutId);
   }
 
   // Set invincibility effect on player
@@ -147,12 +147,9 @@ export class Effects {
     }
   }
 
-  // Helper to remove timeout ID from tracking array
+  // Helper to remove timeout ID from tracking Set (O(1) operation)
   removeTimeout(timeoutId) {
-    const index = this.pendingTimeouts.indexOf(timeoutId);
-    if (index > -1) {
-      this.pendingTimeouts.splice(index, 1);
-    }
+    this.pendingTimeouts.delete(timeoutId);
   }
 
   // Clear all effects (on game end)
@@ -161,7 +158,7 @@ export class Effects {
 
     // Clear all pending timeouts to prevent memory leaks
     this.pendingTimeouts.forEach(id => clearTimeout(id));
-    this.pendingTimeouts = [];
+    this.pendingTimeouts.clear();
 
     this.arena.classList.remove('muzzle-flash', 'shake');
 

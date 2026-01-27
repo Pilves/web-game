@@ -137,7 +137,9 @@ class GameManager {
       return;
     }
 
-    const playerName = name.trim().substring(0, 20).replace(/[<>"'&]/g, ''); // Limit name length and sanitize
+    // Sanitize name using whitelist approach: only allow alphanumeric, spaces, underscores, and hyphens
+    // This prevents XSS and other injection attacks more comprehensively than blacklisting dangerous characters
+    const playerName = name.trim().substring(0, 20).replace(/[^a-zA-Z0-9 _-]/g, '');
 
     // TOCTOU fix: Generate code and atomically check-and-set
     // Use a loop to handle race condition where another request could create
@@ -146,6 +148,13 @@ class GameManager {
     let room = null;
     const maxAttempts = 10;
 
+    // TOCTOU Safety Note: JavaScript/Node.js is single-threaded with an event loop model.
+    // This means the code between generateRoomCode() and rooms.set() executes atomically
+    // without any other code interleaving (no preemption). The only "race" that could occur
+    // is if generateRoomCode() itself generates a code that was created by a previous
+    // iteration of this loop, which is already handled by the do-while check inside
+    // generateRoomCode(). The retry loop below provides additional defense-in-depth
+    // in case the rooms Map is modified by another event handler between calls.
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       code = this.generateRoomCode();
 
@@ -155,15 +164,16 @@ class GameManager {
         return;
       }
 
-      // TOCTOU fix: Double-check the code is still available right before setting
-      // This narrows the race window to the absolute minimum
+      // Double-check the code is still available right before setting.
+      // While JavaScript is single-threaded (no true concurrent execution),
+      // this check provides defense-in-depth against potential edge cases.
       if (!this.rooms.has(code)) {
         // Create the game room immediately after verification
         room = new GameRoom(this.io, code, socket.id);
         this.rooms.set(code, room);
         break;
       }
-      // Code was taken by a concurrent request, try again
+      // Code was taken (should be rare in single-threaded environment), try again
     }
 
     if (!room) {
@@ -220,7 +230,9 @@ class GameManager {
       return;
     }
 
-    const playerName = name.trim().substring(0, 20).replace(/[<>"'&]/g, ''); // Sanitize
+    // Sanitize name using whitelist approach: only allow alphanumeric, spaces, underscores, and hyphens
+    // This prevents XSS and other injection attacks more comprehensively than blacklisting dangerous characters
+    const playerName = name.trim().substring(0, 20).replace(/[^a-zA-Z0-9 _-]/g, '');
 
     // TOCTOU fix: Perform all validation and mutation atomically
     // Get room and validate all conditions in one block before any mutations
@@ -553,8 +565,20 @@ class GameManager {
     // Only allow return from gameover state
     if (room.state !== 'gameover') return;
 
+    // Validate room.players exists before accessing it
+    if (!room.players || !(room.players instanceof Map)) {
+      console.error(`[GameManager] returnToLobby: room.players is invalid for room ${room.code}`);
+      return;
+    }
+
     // Reset player ready state
     player.ready = false;
+
+    // Validate returnToLobbyRequests is a Set before calling .add()
+    // Initialize it if it doesn't exist or isn't a Set
+    if (!room.returnToLobbyRequests || !(room.returnToLobbyRequests instanceof Set)) {
+      room.returnToLobbyRequests = new Set();
+    }
 
     // Check if all players have requested return to lobby
     room.returnToLobbyRequests.add(socket.id);

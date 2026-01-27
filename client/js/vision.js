@@ -46,8 +46,8 @@ export class Vision {
 
   // Clear caches when game state changes (new game, etc.)
   clearCache() {
-    this.playerElementCache.clear();
-    this.pickupElementCache.clear();
+    this.playerElementCache?.clear();
+    this.pickupElementCache?.clear();
   }
 
   // Get cached player element or query and cache it
@@ -85,13 +85,17 @@ export class Vision {
   }
 
   updateVisibility(state, localPlayer) {
-    if (!state || !state.p) return;
+    // Defensive checks for state and required properties
+    if (!state?.p) return;
+
+    // Early return if game reference is invalid
+    if (!this.game) return;
 
     // Check if player is spectating (dead but game continues)
     const isSpectating = this.game.isSpectating;
 
     // Find the local player data from server state
-    const localPlayerData = state.p.find(p => p[0] === this.game.myId);
+    const localPlayerData = state.p.find(p => p[0] === this.game?.myId);
     if (!localPlayerData && !isSpectating) return;
 
     // Extract local player info (only needed if not spectating)
@@ -115,7 +119,7 @@ export class Vision {
       const [id, x, y, facing, flashlight] = pData;
 
       // Skip self - self is always visible via CSS
-      if (id === this.game.myId) continue;
+      if (id === this.game?.myId) continue;
 
       // Get cached player element
       const playerEl = this.getPlayerElement(id);
@@ -187,8 +191,13 @@ export class Vision {
     }
 
     // If TARGET's flashlight is on, they reveal themselves (visible to everyone)
-    if (target.flashlightOn) {
+    if (target?.flashlightOn) {
       return true;
+    }
+
+    // Defensive check for viewer and target - if missing, can't determine visibility
+    if (!viewer || !target) {
+      return false;
     }
 
     // If viewer's flashlight is off, they can't see anyone (who has their flashlight off)
@@ -225,6 +234,11 @@ export class Vision {
       return true;
     }
 
+    // Defensive check for viewer - if no viewer, can't determine visibility
+    if (!viewer) {
+      return false;
+    }
+
     // If viewer's flashlight is off, they can't see anything
     if (!viewer.flashlightOn) {
       return false;
@@ -251,5 +265,11 @@ export class Vision {
 
     // Check line of sight (obstacles blocking)
     return hasLineOfSight(viewer.x, viewer.y, x, y, CONFIG.OBSTACLES);
+  }
+
+  // Clean up all references when game is destroyed
+  destroy() {
+    this.clearCache();
+    this.game = null;
   }
 }

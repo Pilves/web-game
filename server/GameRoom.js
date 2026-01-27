@@ -123,7 +123,10 @@ class GameRoom {
     if (now - tracking.windowStart >= windowMs) {
       // Start a new window
       tracking.windowStart = now;
-      tracking.count = 0;  // Reset to 0, not 1
+      tracking.count = 1;  // Reset to 1 since we're about to process this packet
+      // Skip the increment below since we've already counted this packet
+      // Check if over limit (will always pass on window reset since count is 1)
+      return tracking.count <= maxPackets;
     }
 
     // Increment counter
@@ -148,7 +151,7 @@ class GameRoom {
    * @returns {Object} {x, y} coordinates
    */
   getRandomSpawnPosition(padding = 30) {
-    const pickupSize = CONSTANTS.PROJECTILE_SIZE;
+    const pickupSize = CONSTANTS.PICKUP_SIZE;
     const margin = 50; // Stay away from arena edges
 
     const minX = margin + pickupSize / 2;
@@ -480,7 +483,7 @@ class GameRoom {
       if (event.type === 'hit' || event.type === 'death') {
         this.events.push([event.type, event.victimId || null, event.attackerId || null]);
       } else if (event.type === 'wall-hit' || event.type === 'obstacle-hit') {
-        this.events.push([event.type, event.projectileId || null, event.x || 0, event.y || 0]);
+        this.events.push([event.type, event.projectileId || null, Math.round(event.x || 0), Math.round(event.y || 0)]);
       } else {
         // Fallback for other event types
         this.events.push([event.type, event.victimId || null, event.attackerId || null]);
@@ -523,10 +526,10 @@ class GameRoom {
         if (!pickup.active) continue;
 
         const pickupRect = {
-          x: pickup.x - CONSTANTS.PROJECTILE_SIZE / 2,
-          y: pickup.y - CONSTANTS.PROJECTILE_SIZE / 2,
-          width: CONSTANTS.PROJECTILE_SIZE,
-          height: CONSTANTS.PROJECTILE_SIZE,
+          x: pickup.x - CONSTANTS.PICKUP_SIZE / 2,
+          y: pickup.y - CONSTANTS.PICKUP_SIZE / 2,
+          width: CONSTANTS.PICKUP_SIZE,
+          height: CONSTANTS.PICKUP_SIZE,
         };
 
         if (Physics.rectsCollide(playerRect, pickupRect)) {
@@ -534,7 +537,7 @@ class GameRoom {
 
           // Push event BEFORE updating pickup.active to avoid race condition
           // Include pickup position in event for client sync
-          this.events.push(['pickup', player.id, pickup.id, pickup.x, pickup.y]);
+          this.events.push(['pickup', player.id, pickup.id, Math.round(pickup.x), Math.round(pickup.y)]);
 
           // Player picks up the pillow
           player.hasAmmo = true;
@@ -565,7 +568,7 @@ class GameRoom {
 
           // Add footstep sound event (format: ['sound', soundType, x, y])
           // Client expects this format without playerId
-          this.events.push(['sound', 'footstep', player.x, player.y]);
+          this.events.push(['sound', 'footstep', Math.round(player.x), Math.round(player.y)]);
         }
       }
     }
@@ -705,8 +708,14 @@ class GameRoom {
     // Create copy of events to avoid reference issues when array is cleared after broadcast
     const eventsCopy = this.events.slice();
 
+    // Increment state sequence with overflow protection
+    const seq = this.stateSequence++;
+    if (this.stateSequence >= Number.MAX_SAFE_INTEGER - 1) {
+      this.stateSequence = 0;
+    }
+
     return {
-      seq: this.stateSequence++,
+      seq: seq,
       t: now,
       s: this.state,
       mf: this.muzzleFlashActive,
@@ -766,8 +775,8 @@ class GameRoom {
   buildPickupsArray() {
     return this.pickups.map(p => [
       p.id,
-      p.x,
-      p.y,
+      Math.round(p.x),
+      Math.round(p.y),
       p.active,
     ]);
   }
@@ -900,6 +909,16 @@ class GameRoom {
     const projectileId = `proj_${this.nextProjectileId}`;
     this.nextProjectileId = (this.nextProjectileId % this.MAX_PROJECTILE_ID) + 1;
     const projectile = Combat.createProjectile(player, projectileId);
+
+    // Check if projectile spawns inside an obstacle
+    if (Combat.collidesWithObstacle(projectile, CONSTANTS.OBSTACLES)) {
+      console.log(`[GameRoom ${this.code}] Player ${player.name} projectile spawn blocked by obstacle`);
+      // Still consume ammo but don't create projectile (player is too close to obstacle)
+      player.hasAmmo = false;
+      player.lastThrowTime = now;
+      return;
+    }
+
     console.log(`[GameRoom ${this.code}] Player ${player.name} threw projectile:`, projectile);
 
     this.projectiles.push(projectile);
@@ -908,12 +927,12 @@ class GameRoom {
     player.hasAmmo = false;
     player.lastThrowTime = now;
 
-    // Trigger muzzle flash
-    this.muzzleFlashActive = true;
+    // Trigger muzzle flash (set timestamp before flag for atomic-like behavior)
     this.muzzleFlashUntil = now + CONSTANTS.MUZZLE_FLASH_DURATION;
+    this.muzzleFlashActive = true;
 
     // Add throw event
-    this.events.push(['throw', player.id, projectile.x, projectile.y]);
+    this.events.push(['throw', player.id, Math.round(projectile.x), Math.round(projectile.y)]);
   }
 
   /**
@@ -1013,6 +1032,11 @@ class GameRoom {
     };
 
     this.io.to(this.code).emit('game-over', results);
+
+    // Reset debug sets to prevent memory leaks across multiple games
+    this._inputWarned = new Set();
+    this._inputReceived = new Set();
+    this._broadcastCount = 0;
   }
 
   /**
@@ -1025,6 +1049,14 @@ class GameRoom {
       return;
     }
 
+    // Check if game loop is still active before modifying game state
+    // This prevents race conditions if endGame() was called and cleared gamePlayers
+    if (!this.gameLoopActive && this.state !== 'playing') {
+      // Game has already ended, just clean up tracking
+      this.inputRateTracking.delete(playerId);
+      return;
+    }
+
     const player = this.gamePlayers.get(playerId);
     if (player) {
       player.connected = false;
@@ -1033,7 +1065,8 @@ class GameRoom {
     this.inputRateTracking.delete(playerId);
 
     // Check if game should end due to disconnect
-    if (this.state === 'playing') {
+    // Only check if game loop is still active to prevent race with endGame()
+    if (this.state === 'playing' && this.gameLoopActive) {
       this.checkWinCondition();
     }
   }

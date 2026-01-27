@@ -21,7 +21,7 @@ const CONSTANTS = {
   KNOCKBACK_DISTANCE: 30,       // px
 
   // Server-only: Vision
-  FLASHLIGHT_FLICKER_THRESHOLD: 10000, // ms
+  // Note: FLASHLIGHT_FLICKER_THRESHOLD is now in shared/constants.js (used by both server and client)
   MUZZLE_FLASH_DURATION: 100,   // ms
 
   // Server-only: Pillow spawning
@@ -38,6 +38,8 @@ const CONSTANTS = {
   ROOM_CREATION_COOLDOWN: 5000,   // ms - cooldown between room creations per socket
 
   // Server-only: Rate limiting
+  // INPUT_RATE_LIMIT is intentionally server-only - clients don't need to know the limit.
+  // The server enforces this to prevent DoS attacks; clients just send at their configured rate.
   INPUT_RATE_LIMIT: 120,          // Max input packets per second per player
 };
 

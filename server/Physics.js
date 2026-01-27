@@ -128,14 +128,14 @@ function movePlayer(player, dt, obstacles, arenaInset = 0) {
     const arenaWidth = CONSTANTS.ARENA_WIDTH;
     const arenaHeight = CONSTANTS.ARENA_HEIGHT;
 
-    if (player.x < -halfSize) {
+    if (player.x <= -halfSize) {
       player.x += arenaWidth;
-    } else if (player.x > arenaWidth + halfSize) {
+    } else if (player.x >= arenaWidth + halfSize) {
       player.x -= arenaWidth;
     }
-    if (player.y < -halfSize) {
+    if (player.y <= -halfSize) {
       player.y += arenaHeight;
-    } else if (player.y > arenaHeight + halfSize) {
+    } else if (player.y >= arenaHeight + halfSize) {
       player.y -= arenaHeight;
     }
   } else {

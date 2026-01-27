@@ -68,7 +68,9 @@ export class Renderer {
     }
 
     // Interpolation factor: 50ms between server updates
-    const t = Math.min(stateTime / CONFIG.INTERPOLATION_DELAY, 1);
+    // Defensive check: prevent division by zero if INTERPOLATION_DELAY is 0 or falsy
+    const interpolationDelay = CONFIG.INTERPOLATION_DELAY || 1;
+    const t = Math.min(stateTime / interpolationDelay, 1);
 
     // Track which players are in current state
     const currentPlayerIds = new Set();
@@ -134,10 +136,13 @@ export class Renderer {
     }
 
     // Handle muzzle flash state from server
-    if (currState.mf) {
-      this.arena.classList.add('muzzle-flash');
-    } else {
-      this.arena.classList.remove('muzzle-flash');
+    // Defensive check: arena could be null if DOM element was removed
+    if (this.arena) {
+      if (currState.mf) {
+        this.arena.classList.add('muzzle-flash');
+      } else {
+        this.arena.classList.remove('muzzle-flash');
+      }
     }
   }
 
@@ -193,7 +198,22 @@ export class Renderer {
         cached.direction = el.querySelector('.player-direction');
         if (cached.direction) {
           cached.direction.style.transform = `translateY(-50%) rotate(${facing}rad)`;
+        } else {
+          // Element structure is corrupted - direction indicator not found in DOM
+          console.error(`[Renderer] Direction indicator for player ${id} not found after re-query. ` +
+            `Element structure may be corrupted. Root element innerHTML: ${el.innerHTML.substring(0, 100)}...`);
         }
+      }
+    } else {
+      // cached.direction was null/undefined from the start - element structure issue
+      console.warn(`[Renderer] Direction indicator reference for player ${id} is null. ` +
+        `Attempting to recover from element structure.`);
+      cached.direction = el.querySelector('.player-direction');
+      if (cached.direction) {
+        cached.direction.style.transform = `translateY(-50%) rotate(${facing}rad)`;
+      } else {
+        console.error(`[Renderer] Failed to recover direction indicator for player ${id}. ` +
+          `Element structure corrupted.`);
       }
     }
 
@@ -348,12 +368,29 @@ export class Renderer {
       const [id, x, y, active] = pickup;
       currentPickupIds.add(id);
 
+      // Validate coordinates - skip pickups with invalid positions
+      if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
+        console.warn('[Renderer] Pickup has invalid coordinates:', { id, x, y, active });
+        continue;
+      }
+
       // LOW-17: Reuse pickup elements instead of creating/destroying on respawn
       let el = this.pickupElements[id];
+
+      // Validate cached element is still in DOM (like player elements)
+      if (el && !el.isConnected) {
+        delete this.pickupElements[id];
+        el = null;
+      }
+
       if (!el) {
         el = document.createElement('div');
         el.id = `pickup-${id}`;
         el.className = 'pillow-pickup';
+        // Set initial position BEFORE appending to avoid flash at (0,0)
+        el.style.left = `${x - CONFIG.PICKUP_SIZE / 2}px`;
+        el.style.top = `${y - CONFIG.PICKUP_SIZE / 2}px`;
+        el.style.display = active ? 'block' : 'none';
         this.arena.appendChild(el);
         this.pickupElements[id] = el;
       }
@@ -392,6 +429,8 @@ export class Renderer {
     let startIndex = this.rippleIndex;
 
     // Try to find a non-animating ripple
+    // Note: This loop uses index-based access rather than iterators, so it is safe
+    // from concurrent modification issues. The pool array is not modified during iteration.
     for (let i = 0; i < this.ripplePool.length; i++) {
       const idx = (startIndex + i) % this.ripplePool.length;
       if (!this.ripplePool[idx].animating) {
@@ -460,6 +499,11 @@ export class Renderer {
         this.impactFlashPool.push(poolItem);
       } else {
         // Pool at max size - reuse oldest active element (first in array)
+        // SAFETY NOTE: The push(shift()) operation is safe here because:
+        // 1. This code path only executes when no inactive element was found via find()
+        // 2. The find() operation completed before we reach this branch
+        // 3. No iterator is active on impactFlashPool at this point
+        // 4. The poolItem reference is captured BEFORE the array modification
         poolItem = this.impactFlashPool[0];
         // Move to end of array to implement LRU behavior
         this.impactFlashPool.push(this.impactFlashPool.shift());

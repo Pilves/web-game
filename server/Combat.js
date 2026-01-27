@@ -81,6 +81,7 @@ function getProjectileRect(projectile) {
 
 /**
  * Check if a position is outside the arena bounds
+ * Uses strict comparison (< and >) for consistency with Physics.js player boundary checks.
  * @param {number} x - X coordinate
  * @param {number} y - Y coordinate
  * @param {number} arenaInset - Arena shrink amount (for sudden death)
@@ -294,8 +295,10 @@ function handleHit(victim, attacker, projectile, obstacles = [], arenaInset = 0)
   if (isDeath) {
     // Increment attacker's kill count only on actual kill
     // Explicit null/undefined check: attacker can be null if the throwing player
-    // disconnected before the projectile hit, or if projectile.ownerId is invalid
-    if (attacker !== null && attacker !== undefined && attacker.connected) {
+    // disconnected before the projectile hit, or if projectile.ownerId is invalid.
+    // CRITICAL: Only increment kills when attacker is explicitly connected (=== true)
+    // to prevent awarding kills to disconnected players whose projectiles are still in flight.
+    if (attacker !== null && attacker !== undefined && attacker.connected === true) {
       attacker.kills = (attacker.kills || 0) + 1;
     }
     victim.deaths = (victim.deaths || 0) + 1;
@@ -313,7 +316,17 @@ function handleHit(victim, attacker, projectile, obstacles = [], arenaInset = 0)
 
 /**
  * Update all projectiles for one physics tick
- * @param {Array} projectiles - Array of projectile objects
+ *
+ * NOTE ON ARRAY MUTATION: This function mutates projectile positions in-place for
+ * performance reasons (avoiding object allocation per projectile per frame). The
+ * returned `updatedProjectiles` array contains references to the same projectile
+ * objects that were passed in. Callers should be aware that:
+ * 1. The input `projectiles` array should not be used after calling this function
+ * 2. The returned array is a new array (via slice()) but contains the same objects
+ * 3. Projectiles removed from the array (due to hits, expiry, etc.) still exist
+ *    in memory until no references remain
+ *
+ * @param {Array} projectiles - Array of projectile objects (will be mutated)
  * @param {number} dt - Delta time in seconds
  * @param {Array} obstacles - Array of obstacle objects
  * @param {Object} players - Map of player ID to player objects

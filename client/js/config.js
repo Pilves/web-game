@@ -9,13 +9,8 @@ if (typeof SHARED_CONSTANTS === 'undefined') {
 // Build CONFIG by spreading shared constants and adding client-only ones
 export const CONFIG = {
   // Import all shared constants (loaded globally via script tag)
+  // Note: PICKUP_SIZE (30) and FLASHLIGHT_FLICKER_THRESHOLD (10000) come from SHARED_CONSTANTS
   ...(typeof SHARED_CONSTANTS !== 'undefined' ? SHARED_CONSTANTS : {}),
-
-  // Client-only: Combat
-  PICKUP_SIZE: 30,
-
-  // Client-only: Vision
-  FLASHLIGHT_FLICKER_THRESHOLD: 10000, // ms - when flashlight starts flickering
 
   // Client-only: Networking
   INPUT_SEND_RATE: 60,    // Hz - match physics tick

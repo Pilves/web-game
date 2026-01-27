@@ -223,8 +223,8 @@ class Game {
         console.log('[Game] Spectating - watching game');
       }
 
-      // Predict local player movement (skip when spectating)
-      if (!this.isSpectating) {
+      // Predict local player movement (skip when spectating or if localPlayer not yet initialized)
+      if (!this.isSpectating && this.localPlayer) {
         this.predictLocalPlayer(input, cappedDt);
       }
 
@@ -325,6 +325,9 @@ class Game {
     const myPlayerData = state.p.find(p => p[0] === this.myId);
     if (!myPlayerData) return;
 
+    // Validate player data array has enough elements (need at least 6 for hearts at index 5)
+    if (!Array.isArray(myPlayerData) || myPlayerData.length < 6) return;
+
     const hearts = myPlayerData[5]; // hearts is at index 5
 
     // Enter spectator mode when dead (hearts <= 0)
@@ -411,11 +414,15 @@ class Game {
         } else if (this.localPlayer && state?.k) {
           // Find the pickup position from state
           const pickup = state.k.find(p => p[0] === pickupId);
-          if (pickup) {
+          // Validate pickup has expected structure: [id, x, y, ...]
+          if (pickup && Array.isArray(pickup) && pickup.length >= 3 &&
+              typeof pickup[1] === 'number' && typeof pickup[2] === 'number') {
             this.audio.playPositional('pickup', pickup[1], pickup[2],
               this.localPlayer.x, this.localPlayer.y);
-          } else {
+          } else if (!pickup) {
             console.warn('[Game] handleEvent pickup: Could not find pickup in state, pickupId:', pickupId);
+          } else {
+            console.warn('[Game] handleEvent pickup: Invalid pickup data structure, pickupId:', pickupId, 'pickup:', pickup);
           }
         } else if (this.localPlayer && !state?.k) {
           console.warn('[Game] handleEvent pickup: State has no pickups array');
@@ -1182,9 +1189,14 @@ class Game {
       this.effects.clear();
     }
 
-    // Clear renderer
+    // Destroy vision (clears caches)
+    if (this.vision) {
+      this.vision.destroy();
+    }
+
+    // Destroy renderer (full cleanup including DOM elements)
     if (this.renderer) {
-      this.renderer.clear();
+      this.renderer.destroy();
     }
   }
 
@@ -1199,19 +1211,17 @@ class Game {
       if (!this.audioInitialized) {
         // Set flag BEFORE awaiting to prevent race condition with multiple calls
         this.audioInitialized = true;
+        // Remove listeners IMMEDIATELY after setting flag to prevent accumulation on rapid clicks
+        this._removeDocumentListener('click', resumeAudio);
+        this._removeDocumentListener('keydown', resumeAudio);
         try {
           await this.audio.init();
           this.audio.resume();
-          // Remove from tracked listeners and document
-          this._removeDocumentListener('click', resumeAudio);
-          this._removeDocumentListener('keydown', resumeAudio);
         } catch (err) {
           console.error('[Game] Audio init failed:', err);
-          // Reset flag on failure so it can be retried
+          // Reset flag on failure so it can be retried on next user interaction
+          // Note: listeners are already removed, so user needs to trigger another action
           this.audioInitialized = false;
-          // Still remove listeners to prevent infinite retry
-          this._removeDocumentListener('click', resumeAudio);
-          this._removeDocumentListener('keydown', resumeAudio);
         }
       }
     };

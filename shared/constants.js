@@ -18,10 +18,12 @@
 
     // Combat
     PROJECTILE_SIZE: 20,
+    PICKUP_SIZE: 30,          // Visual and collision size for ground pickups
 
     // Vision
     FLASHLIGHT_RANGE: 200,        // px
     FLASHLIGHT_ANGLE: 60,         // degrees
+    FLASHLIGHT_FLICKER_THRESHOLD: 10000, // ms - when flashlight starts flickering (used by both server and client)
 
     // Game
     DEFAULT_LIVES: 3,

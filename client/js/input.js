@@ -95,10 +95,22 @@ export class Input {
       this.mouseY = (e.clientY - rect.top) * scaleY;
 
       // Calculate facing angle from local player position to mouse
-      if (!this.game.localPlayer) return;
+      // Defensive checks to prevent NaN from persisting if localPlayer coordinates are invalid
+      const localPlayer = this.game.localPlayer;
+      if (!localPlayer) return;
 
-      const dx = this.mouseX - this.game.localPlayer.x;
-      const dy = this.mouseY - this.game.localPlayer.y;
+      const playerX = localPlayer.x;
+      const playerY = localPlayer.y;
+
+      // Ensure player coordinates are valid numbers (not undefined, null, or NaN)
+      if (typeof playerX !== 'number' || typeof playerY !== 'number' ||
+          Number.isNaN(playerX) || Number.isNaN(playerY)) {
+        // Keep previous facing value (or default of 0) - don't update with invalid data
+        return;
+      }
+
+      const dx = this.mouseX - playerX;
+      const dy = this.mouseY - playerY;
       this.facing = Math.atan2(dy, dx);
     };
 

@@ -20,6 +20,9 @@ export class Network {
 
     // Track if we're currently rejoining (to prevent user interaction during rejoin)
     this.rejoining = false;
+
+    // Guard flag to prevent race conditions during handler removal
+    this._removingHandlers = false;
   }
 
   // Connect to the game server
@@ -98,14 +101,26 @@ export class Network {
   // Remove game event handlers only (used before reconnect to prevent duplicates)
   // Lifecycle handlers (connect/disconnect/reconnect) are NOT removed - they persist
   removeGameHandlers() {
+    // Guard against race condition: if reconnect fires while removing handlers,
+    // prevent duplicate handler additions by checking/setting the guard flag
+    if (this._removingHandlers) {
+      console.log('[Network] removeGameHandlers already in progress, skipping');
+      return;
+    }
+
     if (this.socket && this.handlersSetup) {
-      for (const [event, handler] of Object.entries(this.handlers)) {
-        // Skip lifecycle handlers - they should persist
-        if (Network.LIFECYCLE_HANDLERS.includes(event)) continue;
-        this.socket.off(event, handler);
-        delete this.handlers[event];
+      this._removingHandlers = true;
+      try {
+        for (const [event, handler] of Object.entries(this.handlers)) {
+          // Skip lifecycle handlers - they should persist
+          if (Network.LIFECYCLE_HANDLERS.includes(event)) continue;
+          this.socket.off(event, handler);
+          delete this.handlers[event];
+        }
+        this.handlersSetup = false;
+      } finally {
+        this._removingHandlers = false;
       }
-      this.handlersSetup = false;
     }
   }
 
@@ -397,6 +412,13 @@ export class Network {
     if (input == null || typeof input !== 'object') {
       console.warn('[Network] sendInput called with invalid input:', input);
       return;
+    }
+
+    // Safeguard against sequence number overflow - reset when approaching MAX_SAFE_INTEGER
+    // This prevents loss of precision after ~9 quadrillion increments
+    if (this.inputSequence > Number.MAX_SAFE_INTEGER - 1000) {
+      console.log('[Network] Input sequence approaching MAX_SAFE_INTEGER, resetting to 0');
+      this.inputSequence = 0;
     }
 
     const packet = {

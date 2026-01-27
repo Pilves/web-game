@@ -39,6 +39,11 @@ app.use('/shared', express.static('shared'));
 // Initialize game manager
 const gameManager = new GameManager(io);
 
+// Periodic cleanup of stale rate limit entries (every 5 minutes)
+setInterval(() => {
+  gameManager.cleanupStaleRateLimits();
+}, 5 * 60 * 1000);
+
 // Socket connection handling
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
