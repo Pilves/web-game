@@ -21,6 +21,7 @@ const { resolveCollision } = Physics;
 
 const {
   PROJECTILE_SPEED,
+  PROJECTILE_BORDER_BOOST,
   PROJECTILE_SIZE,
   THROW_COOLDOWN,
   THROW_SPREAD_DARK,
@@ -355,17 +356,29 @@ function updateProjectiles(projectiles, dt, obstacles, players, arenaInset = 0) 
     // Handle boundaries - wrap around like Snake (except during sudden death)
     const halfSize = PROJECTILE_SIZE / 2;
     if (arenaInset === 0) {
-      // Wrap around mode
+      // Wrap around mode - boost speed on border crossing
+      let crossed = false;
       if (projectile.x < -halfSize) {
         projectile.x += ARENA_WIDTH;
+        crossed = true;
       } else if (projectile.x > ARENA_WIDTH + halfSize) {
         projectile.x -= ARENA_WIDTH;
+        crossed = true;
       }
 
       if (projectile.y < -halfSize) {
         projectile.y += ARENA_HEIGHT;
+        crossed = true;
       } else if (projectile.y > ARENA_HEIGHT + halfSize) {
         projectile.y -= ARENA_HEIGHT;
+        crossed = true;
+      }
+
+      // Speed boost after crossing border (only once)
+      if (crossed && !projectile.boosted) {
+        projectile.vx *= PROJECTILE_BORDER_BOOST;
+        projectile.vy *= PROJECTILE_BORDER_BOOST;
+        projectile.boosted = true;
       }
     } else {
       // During sudden death, projectiles hit walls

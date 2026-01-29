@@ -153,11 +153,18 @@ class GameRoom {
   getRandomSpawnPosition(padding = 30) {
     const pickupSize = CONSTANTS.PICKUP_SIZE;
     const margin = 50; // Stay away from arena edges
+    const inset = this.arenaInset || 0; // Account for arena shrinking
+    const edgeOffset = Math.max(margin, inset + 20); // Stay inside shrunk arena with buffer
 
-    const minX = margin + pickupSize / 2;
-    const maxX = CONSTANTS.ARENA_WIDTH - margin - pickupSize / 2;
-    const minY = margin + pickupSize / 2;
-    const maxY = CONSTANTS.ARENA_HEIGHT - margin - pickupSize / 2;
+    const minX = edgeOffset + pickupSize / 2;
+    const maxX = CONSTANTS.ARENA_WIDTH - edgeOffset - pickupSize / 2;
+    const minY = edgeOffset + pickupSize / 2;
+    const maxY = CONSTANTS.ARENA_HEIGHT - edgeOffset - pickupSize / 2;
+
+    // If arena has shrunk too much, just return center
+    if (minX >= maxX || minY >= maxY) {
+      return { x: CONSTANTS.ARENA_WIDTH / 2, y: CONSTANTS.ARENA_HEIGHT / 2 };
+    }
 
     // Try to find a valid position (max 100 attempts)
     for (let attempt = 0; attempt < 100; attempt++) {

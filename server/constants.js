@@ -19,7 +19,8 @@ const CONSTANTS = {
   PLAYER_FRICTION: 0.85,        // velocity multiplier per frame when not moving
 
   // Server-only: Combat
-  PROJECTILE_SPEED: 500,        // px/sec
+  PROJECTILE_SPEED: 700,        // px/sec
+  PROJECTILE_BORDER_BOOST: 1.5, // speed multiplier after crossing arena border
   THROW_COOLDOWN: 500,          // ms
   THROW_SPREAD_DARK: 15,        // degrees, when flashlight off
   STUN_DURATION: 300,           // ms
