@@ -25,6 +25,7 @@
 
         <div class="menu-buttons">
           <button id="create-room-btn" class="btn btn-primary" aria-label="Create a new game room">Create Room</button>
+          <div class="menu-divider">or</div>
           <div class="join-room-group">
             <input type="text" id="room-code-input" placeholder="CODE" maxlength="4" autocomplete="off" aria-label="Enter 4-letter room code">
             <button id="join-room-btn" class="btn btn-secondary" aria-label="Join existing room">Join</button>
@@ -134,8 +135,9 @@
   <!-- Lobby Screen -->
   <div id="lobby-screen" class="screen">
     <div class="lobby-container">
+      <h1 class="lobby-title">LIGHTS OUT</h1>
       <div class="lobby-header">
-        <h2>Room Code:</h2>
+        <span class="room-code-label">Room</span>
         <div id="room-code-display" class="room-code" aria-live="polite" aria-label="Room code">----</div>
         <button id="copy-code-btn" class="btn btn-small" aria-label="Copy room code to clipboard">Copy</button>
       </div>
@@ -202,7 +204,10 @@
 
     <!-- Countdown Overlay -->
     <div id="countdown-overlay" class="overlay" role="alert" aria-live="assertive">
-      <div id="countdown-number" aria-label="Countdown">3</div>
+      <div class="countdown-content">
+        <p class="countdown-label">Get Ready</p>
+        <div id="countdown-number" aria-label="Countdown">3</div>
+      </div>
     </div>
 
     <!-- Pause Menu Overlay -->
@@ -219,10 +224,13 @@
   <!-- Game Over Screen -->
   <div id="gameover-screen" class="screen">
     <div class="gameover-container">
+      <p class="gameover-label">Game Over</p>
       <h1 id="winner-text">Player Wins!</h1>
 
-      <div id="final-scoreboard" class="scoreboard-table">
-        <!-- Final scores will be inserted here -->
+      <div class="scoreboard-table">
+        <div id="final-scoreboard">
+          <!-- Final scores will be inserted here -->
+        </div>
       </div>
 
       <div class="gameover-buttons">

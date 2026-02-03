@@ -222,9 +222,14 @@ export class UI {
       if (winner) {
         const winnerInfo = this.game.lobbyData?.players?.find(p => p.id === winner);
         const winnerName = winnerInfo?.name || 'Someone';
+        const winnerColor = winnerInfo?.color || '#ffffff';
         winnerText.textContent = `${winnerName} Wins!`;
+        winnerText.style.color = winnerColor;
+        winnerText.style.textShadow = `0 0 30px ${winnerColor}, 0 0 60px ${winnerColor}40`;
       } else {
         winnerText.textContent = "It's a Draw!";
+        winnerText.style.color = '';
+        winnerText.style.textShadow = '';
       }
     }
 
@@ -239,29 +244,43 @@ export class UI {
         return a.deaths - b.deaths;
       });
 
-      for (const score of sorted) {
+      sorted.forEach((score, index) => {
         const row = document.createElement('div');
-        row.className = 'score-row';
+        row.className = 'scoreboard-row';
         if (score.id === this.game.myId) row.classList.add('self');
         if (score.id === winner) row.classList.add('winner');
 
+        const rankSpan = document.createElement('span');
+        rankSpan.className = 'scoreboard-rank';
+        rankSpan.textContent = index === 0 ? '\u{1F451}' : `#${index + 1}`;
+        row.appendChild(rankSpan);
+
+        const playerInfo = this.game.lobbyData?.players?.find(p => p.id === score.id);
+        const color = playerInfo?.color || '#ffffff';
+
+        const colorDot = document.createElement('span');
+        colorDot.className = 'scoreboard-color-dot';
+        colorDot.style.background = color;
+        colorDot.style.boxShadow = `0 0 8px ${color}`;
+        row.appendChild(colorDot);
+
         const nameSpan = document.createElement('span');
-        nameSpan.className = 'player-name';
+        nameSpan.className = 'scoreboard-name';
         nameSpan.textContent = score.name;
         row.appendChild(nameSpan);
 
         const killsSpan = document.createElement('span');
-        killsSpan.className = 'kills';
+        killsSpan.className = 'stat-kills';
         killsSpan.textContent = `${score.kills} kills`;
         row.appendChild(killsSpan);
 
         const deathsSpan = document.createElement('span');
-        deathsSpan.className = 'deaths';
+        deathsSpan.className = 'stat-deaths';
         deathsSpan.textContent = `${score.deaths} deaths`;
         row.appendChild(deathsSpan);
 
         finalScoreboard.appendChild(row);
-      }
+      });
     }
 
     this.showScreen('gameover');
@@ -270,10 +289,23 @@ export class UI {
   showCountdown(count) {
     const overlay = document.getElementById('countdown-overlay');
     const number = document.getElementById('countdown-number');
+    const label = overlay?.querySelector('.countdown-label');
 
     if (overlay && number) {
       overlay.style.display = 'flex';
-      number.textContent = count;
+      if (count === 'GO!') {
+        number.textContent = count;
+        number.classList.add('go');
+        if (label) label.style.display = 'none';
+      } else {
+        number.textContent = count;
+        number.classList.remove('go');
+        if (label) label.style.display = '';
+        // Re-trigger animation
+        number.style.animation = 'none';
+        number.offsetHeight; // force reflow
+        number.style.animation = '';
+      }
     }
   }
 

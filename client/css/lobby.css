@@ -20,6 +20,16 @@
   width: 100%;
 }
 
+.lobby-title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+  margin-bottom: var(--spacing-xs);
+}
+
 /* ==========================================================================
    Lobby Header - Room Code Display
    ========================================================================== */
@@ -30,10 +40,12 @@
   gap: var(--spacing-md);
 }
 
-.lobby-header h2 {
-  font-size: var(--font-size-lg);
+.room-code-label {
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 2px;
 }
 
 .room-code {
@@ -156,23 +168,32 @@
 
 .lobby-settings {
   display: flex;
-  gap: var(--spacing-xl);
-  padding: var(--spacing-md);
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   border-radius: var(--border-radius-md);
+  width: 100%;
+  max-width: 280px;
 }
 
 .lobby-settings label {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-sm);
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
+  white-space: nowrap;
 }
 
-.lobby-settings input[type="number"] {
+#lives-setting {
   width: 70px;
+}
+
+#time-setting {
+  width: 90px;
 }
 
 /* Hide settings for non-host players */

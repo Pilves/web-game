@@ -375,11 +375,11 @@ class Game {
     const resumeAudio = async () => {
       if (!this.audioInitialized) {
         this.audioInitialized = true;
-        this._removeDocumentListener('click', resumeAudio);
-        this._removeDocumentListener('keydown', resumeAudio);
         try {
           await this.audio.init();
-          this.audio.resume();
+          await this.audio.resume();
+          this._removeDocumentListener('click', resumeAudio);
+          this._removeDocumentListener('keydown', resumeAudio);
         } catch (err) {
           console.error('[Game] Audio init failed:', err);
           // Reset flag on failure so it can be retried on next user interaction

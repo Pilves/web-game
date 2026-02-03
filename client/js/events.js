@@ -101,11 +101,14 @@ export function handleEvent(event, state, myId, localPlayer, playerMap = null) {
     }
 
     case 'sound': {
-      const [soundType, x, y] = data;
+      const [soundType, x, y, playerId] = data;
       effects.showSoundRipple(x, y, soundType);
 
-      if (localPlayer) {
-        audio.playPositional(soundType, x, y,
+      const soundName = soundType === 'footstep' ? 'footstep-heavy' : soundType;
+      if (playerId === myId) {
+        audio.play(soundName, 0.4);
+      } else if (localPlayer) {
+        audio.playPositional(soundName, x, y,
           localPlayer.x, localPlayer.y);
       }
       break;

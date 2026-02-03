@@ -272,7 +272,7 @@ class GameRoom {
         if (now - player.lastFootstepTime >= FOOTSTEP_INTERVAL) {
           player.lastFootstepTime = now;
 
-          this.events.push(['sound', 'footstep', Math.round(player.x), Math.round(player.y)]);
+          this.events.push(['sound', 'footstep', Math.round(player.x), Math.round(player.y), player.id]);
         }
       }
     }
