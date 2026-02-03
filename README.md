@@ -41,7 +41,7 @@ The game uses a client-server architecture with Socket.io for real-time communic
 ## Setup and Installation
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Pilves/web-game.git
 cd web-game
 npm install
 ```
@@ -55,10 +55,10 @@ cp .env.example .env
 ### Docker (alternative)
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-The Docker setup exposes the game on port 3200.
+The Docker setup exposes the game on port 3000.
 
 ## Running the Game
 
@@ -84,7 +84,6 @@ The server starts on `http://localhost:3000` by default.
 |---------------|------------------------|------------------------------------------------------|
 | `PORT`        | `3000`                 | Server port                                          |
 | `CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origins (comma-separated for multiple) |
-| `DEBUG`       | *(off)*                | Set to `1` to enable verbose server-side logging     |
 
 See [`.env.example`](.env.example) for a full template.
 

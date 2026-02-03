@@ -4,10 +4,10 @@ services:
     container_name: lights-out-game
     restart: unless-stopped
     ports:
-      - "3200:3000"
+      - "3000:3000"
     networks:
-      - casino_default
+      - gateway
 
 networks:
-  casino_default:
+  gateway:
     external: true
