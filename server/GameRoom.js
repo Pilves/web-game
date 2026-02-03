@@ -586,7 +586,13 @@ class GameRoom {
     const resumedBy = this.pausedBy;
     this.pausedBy = null;
 
-    this.io.to(this.code).emit('game-resumed', { by: resumedBy });
+    const player = this.gamePlayers.get(playerId);
+    const playerName = player?.name || 'Unknown';
+
+    this.io.to(this.code).emit('game-resumed', {
+      by: resumedBy,
+      name: playerName,
+    });
   }
 
   /**

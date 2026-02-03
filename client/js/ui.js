@@ -165,7 +165,7 @@ export class UI {
       // This is intentional - it allows the host to start a solo game without waiting for
       // other players to ready up. The enoughPlayers check below ensures at least the host exists.
       const allNonHostReady = nonHostPlayers.every(p => p.ready);
-      const enoughPlayers = lobbyData.players.length >= 1; // Allow solo
+      const enoughPlayers = lobbyData.players.length >= 2;
 
       startBtn.disabled = !this.game.isHost || !allNonHostReady || !enoughPlayers;
       startBtn.style.display = this.game.isHost ? 'inline-block' : 'none';

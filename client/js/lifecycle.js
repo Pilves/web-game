@@ -146,7 +146,7 @@ export function onGamePaused(game, pausedBy) {
   }
 }
 
-export function onGameResumed(game) {
+export function onGameResumed(game, data) {
   if (!game.transitionState('playing')) {
     console.warn('[Lifecycle] Cannot resume from current state:', game.state);
     return;
@@ -156,6 +156,12 @@ export function onGameResumed(game) {
   if (overlay) {
     overlay.style.display = 'none';
   }
+
+  // Show who resumed the game to all players
+  const playerName = data?.name
+    || game.lobbyData?.players?.find(p => p.id === data?.by)?.name
+    || 'Someone';
+  game.showNotification(`${playerName} resumed the game`);
 }
 
 export function onPlayerQuit(game, data) {

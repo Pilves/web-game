@@ -268,7 +268,7 @@ class Game {
   onGameStart(data) { lifecycle.onGameStart(this, data); }
   onCountdownCancelled(reason) { lifecycle.onCountdownCancelled(this, reason); }
   onGamePaused(pausedBy) { lifecycle.onGamePaused(this, pausedBy); }
-  onGameResumed(resumedBy) { lifecycle.onGameResumed(this); }
+  onGameResumed(data) { lifecycle.onGameResumed(this, data); }
   onPlayerQuit(data) { lifecycle.onPlayerQuit(this, data); }
   onSuddenDeath() { lifecycle.onSuddenDeath(this); }
   onGameOver(data) { lifecycle.onGameOver(this, data); }

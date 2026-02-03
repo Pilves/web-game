@@ -256,8 +256,8 @@ export class Network {
 
     // Game resumed
     this.handlers['game-resumed'] = (data) => {
-      console.log('Game resumed by:', data?.by);
-      this.game.onGameResumed(data?.by);
+      console.log('Game resumed by:', data?.name || data?.by);
+      this.game.onGameResumed(data);
     };
     this.socket.on('game-resumed', this.handlers['game-resumed']);
 
