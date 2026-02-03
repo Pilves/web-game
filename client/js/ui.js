@@ -324,13 +324,11 @@ export class UI {
 
     if (createRoomBtn) {
       const createHandler = () => {
-        const name = playerNameInput?.value.trim() || (typeof PLAYER_NAMES !== 'undefined' ? PLAYER_NAMES.generateName() : 'Player');
-        if (name) {
-          this.clearError();
-          createRoomBtn.disabled = true;
-          createRoomBtn.classList.add('loading');
-          this.game.network.createRoom(name);
-        }
+        const name = playerNameInput?.value.trim() || '';
+        this.clearError();
+        createRoomBtn.disabled = true;
+        createRoomBtn.classList.add('loading');
+        this.game.network.createRoom(name);
       };
       createRoomBtn.addEventListener('click', createHandler);
       this.boundHandlers.menu.push({ element: createRoomBtn, event: 'click', handler: createHandler });
@@ -338,7 +336,7 @@ export class UI {
 
     if (joinRoomBtn) {
       const joinHandler = () => {
-        const name = playerNameInput?.value.trim() || (typeof PLAYER_NAMES !== 'undefined' ? PLAYER_NAMES.generateName() : 'Player');
+        const name = playerNameInput?.value.trim() || '';
         const code = roomCodeInput?.value.trim().toUpperCase();
 
         if (!code || code.length !== 4) {

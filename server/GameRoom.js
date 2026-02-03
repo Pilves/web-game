@@ -94,9 +94,10 @@ class GameRoom {
       return;
     }
 
+    const existingNames = Array.from(this.players.values()).map(p => p.name);
     const sanitizedName = (typeof name === 'string' && name.trim().length > 0)
       ? name.trim().slice(0, 20)
-      : Names.generateName();
+      : Names.generateName(existingNames);
 
     const colorRegex = /^#[0-9A-Fa-f]{6}$/;
     const sanitizedColor = (typeof color === 'string' && colorRegex.test(color))
@@ -105,7 +106,7 @@ class GameRoom {
 
     const player = {
       id: socket.id,
-      name: sanitizedName || Names.generateName(),
+      name: sanitizedName || Names.generateName(existingNames),
       color: sanitizedColor,
       ready: false,
       roomCode: this.code,

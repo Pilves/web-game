@@ -1,6 +1,7 @@
 const CONSTANTS = require('./constants');
 const GameRoom = require('./GameRoom');
 const RateLimiter = require('./RateLimiter');
+const Names = require('../shared/names.js');
 
 class GameManager {
   constructor(io) {
@@ -80,12 +81,7 @@ class GameManager {
 
     const { name } = data || {};
 
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      socket.emit('join-error', { message: 'Please enter a valid name' });
-      return;
-    }
-
-    const playerName = name.trim().substring(0, 20).replace(/[^a-zA-Z0-9 _-]/g, '');
+    const rawName = (typeof name === 'string') ? name.trim().substring(0, 20).replace(/[^a-zA-Z0-9 _-]/g, '') : '';
 
     let code = null;
     let room = null;
@@ -114,6 +110,8 @@ class GameManager {
     this.roomCreationCooldown.set(socket.id, Date.now());
     setTimeout(() => this.roomCreationCooldown.delete(socket.id), CONSTANTS.ROOM_CREATION_COOLDOWN);
 
+    const playerName = rawName || Names.generateName([]);
+
     const player = {
       id: socket.id,
       name: playerName,
@@ -133,11 +131,6 @@ class GameManager {
   joinRoom(socket, data) {
     const { code, name } = data || {};
 
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      socket.emit('join-error', { message: 'Please enter a valid name' });
-      return;
-    }
-
     if (!code || typeof code !== 'string') {
       socket.emit('join-error', { message: 'Please enter a room code' });
       return;
@@ -149,7 +142,7 @@ class GameManager {
       return;
     }
 
-    const playerName = name.trim().substring(0, 20).replace(/[^a-zA-Z0-9 _-]/g, '');
+    const rawName = (typeof name === 'string') ? name.trim().substring(0, 20).replace(/[^a-zA-Z0-9 _-]/g, '') : '';
 
     const room = this.rooms.get(roomCode);
     if (!room) {
@@ -167,9 +160,15 @@ class GameManager {
       return;
     }
 
-    if (!this.isNameUnique(room, playerName)) {
+    const existingNames = Array.from(room.players.values()).map(p => p.name);
+    let playerName;
+    if (rawName && this.isNameUnique(room, rawName)) {
+      playerName = rawName;
+    } else if (rawName) {
       socket.emit('join-error', { message: 'Name already taken in this room' });
       return;
+    } else {
+      playerName = Names.generateName(existingNames);
     }
 
     const color = this.getNextColor(room);
