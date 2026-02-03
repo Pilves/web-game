@@ -6,6 +6,8 @@ A real-time multiplayer stealth-action brawler where 2-4 players battle in a pit
 
 Built entirely with DOM elements -- no HTML canvas used.
 
+**Live demo: [hetk.es/game](https://hetk.es/game)**
+
 ## Table of Contents
 
 - [Project Overview](#project-overview)
@@ -28,7 +30,7 @@ The game uses a client-server architecture with Socket.io for real-time communic
 - **Server:** Node.js, Express, Socket.io
 - **Client:** Vanilla JavaScript (ES6 modules), HTML, CSS
 - **Rendering:** DOM elements only (no canvas)
-- **Audio:** Web Audio API with generated sound fallbacks
+- **Audio:** Web Audio API with AI-generated vocal sound effects
 - **Deployment:** Docker support included
 
 ## Requirements
@@ -42,6 +44,12 @@ The game uses a client-server architecture with Socket.io for real-time communic
 git clone <repository-url>
 cd web-game
 npm install
+```
+
+Copy the environment file and adjust as needed:
+
+```bash
+cp .env.example .env
 ```
 
 ### Docker (alternative)
@@ -72,43 +80,36 @@ The server starts on `http://localhost:3000` by default.
 
 ### Environment Variables
 
-| Variable      | Default                | Description                                     |
-|---------------|------------------------|-------------------------------------------------|
-| `PORT`        | `3000`                 | Server port                                     |
+| Variable      | Default                | Description                                          |
+|---------------|------------------------|------------------------------------------------------|
+| `PORT`        | `3000`                 | Server port                                          |
 | `CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origins (comma-separated for multiple) |
+| `DEBUG`       | *(off)*                | Set to `1` to enable verbose server-side logging     |
 
-### Exposing to the Internet
-
-For players on different networks to connect, expose the server using a tunneling tool:
-
-```bash
-ngrok http 3000
-```
-
-Share the generated URL with other players.
+See [`.env.example`](.env.example) for a full template.
 
 ## Usage Guide
 
 ### Joining a Game
 
 1. Open the game URL in your browser
-2. Enter a player name (max 12 characters, must be unique in the room)
+2. Enter a player name (max 12 characters) -- or leave blank for an auto-generated name
 3. Either:
    - **Create a room** to get a 4-letter room code
    - **Join a room** by entering an existing code
 4. Share the room code with other players
 5. In the lobby, click **Ready** when prepared to play
-6. The host (room creator) starts the game once 2+ players are present
+6. The host (room creator) starts the game once 2+ players are ready
 
 ### Controls
 
-| Action            | Primary Key | Alternative   |
-|-------------------|-------------|---------------|
-| Move              | WASD        | Arrow Keys    |
-| Sprint            | Hold Shift  | --            |
-| Throw Pillow      | Space       | --            |
-| Toggle Flashlight | F           | --            |
-| Pause Menu        | Escape      | --            |
+| Action            | Primary Key | Alternative |
+|-------------------|-------------|-------------|
+| Move              | WASD        | Arrow Keys  |
+| Sprint            | Hold Shift  | --          |
+| Throw Pillow      | Space       | Left Click  |
+| Toggle Flashlight | F           | Right Click |
+| Pause Menu        | Escape      | --          |
 
 Controls can be rebound in the settings menu. Custom bindings are saved to localStorage.
 
@@ -159,7 +160,7 @@ If the timer runs out, **sudden death** begins: the arena shrinks every 5 second
 
 - Real-time hearts display for all players visible in the HUD scoreboard
 - The winner is announced at game end with a final results screen
-- After the game ends, players automatically return to the lobby after 30 seconds, or can click **Play Again**
+- After the game ends, players automatically return to the lobby after 15 seconds, or can click **Play Again**
 
 ### Timer
 
@@ -168,7 +169,7 @@ A countdown timer is displayed during gameplay in MM:SS format. A warning sound 
 ## Bonus Features
 
 ### Spatial Audio
-Full sound design using the Web Audio API with positional audio. Sounds include footsteps (light and heavy), pillow throws, wall/player impacts, pickup collection, flashlight toggles, death, countdown, victory, and a 30-second warning. If audio files fail to load, procedurally generated sounds are used as fallbacks.
+Full sound design using the Web Audio API with positional audio. 12 AI-generated vocal sound effects (mouth-made style via OpenAI TTS) for footsteps, throws, impacts, pickups, flashlight, death, countdown, start, victory, and warnings. Procedurally generated fallbacks are used if audio files fail to load.
 
 ### Customizable Controls
 Players can rebind all keyboard controls through the in-game settings modal. Bindings persist via localStorage.
@@ -184,7 +185,7 @@ An in-game help modal with detailed instructions, icons, and gameplay tips.
 
 ### Performance Optimizations
 - Object pooling for projectiles, ripples, and flash effects to minimize garbage collection
-- Reusable collision detection objects
+- Reusable collision detection objects (shared Hitbox module)
 - DOM element caching and minimized reflows
 - Gzip compression on network traffic (60-70% bandwidth reduction)
 - Server-authoritative physics at 60 Hz tick rate with 20 Hz state broadcasts
@@ -194,7 +195,7 @@ Multiple layers of protection against abuse: input rate limiting (120 packets/se
 
 ### Accessibility
 - ARIA labels and live regions for screen reader support
-- Semantic HTML structure
+- Semantic HTML structure with proper roles
 - Keyboard-only navigation support
 
 ## Project Structure
@@ -203,29 +204,49 @@ Multiple layers of protection against abuse: input rate limiting (120 packets/se
 web-game/
 ├── client/
 │   ├── js/
-│   │   ├── main.js        # Game orchestrator
-│   │   ├── network.js     # Socket.io client
-│   │   ├── renderer.js    # DOM rendering with object pools
-│   │   ├── ui.js          # Screen and UI management
-│   │   ├── input.js       # Keyboard input handling
-│   │   ├── config.js      # Client configuration
-│   │   ├── audio.js       # Web Audio API and spatial audio
-│   │   ├── effects.js     # Visual effects (ripples, flashes)
-│   │   └── vision.js      # Flashlight and visibility
-│   ├── css/               # Modular stylesheets
-│   ├── assets/            # Sounds and sprites
-│   └── index.html         # Single-page app
+│   │   ├── main.js          # Game orchestrator
+│   │   ├── network.js       # Socket.io client
+│   │   ├── renderer.js      # DOM rendering
+│   │   ├── pools.js         # Object pools (projectiles, ripples, flashes)
+│   │   ├── ui.js            # Screen and HUD management
+│   │   ├── lobby.js         # Lobby UI (player list, settings, room codes)
+│   │   ├── input.js         # Keyboard/mouse input handling
+│   │   ├── config.js        # Client configuration and debug helpers
+│   │   ├── audio.js         # Web Audio API and spatial audio
+│   │   ├── effects.js       # Visual effects (ripples, flashes)
+│   │   ├── vision.js        # Flashlight and visibility
+│   │   ├── prediction.js    # Client-side movement prediction
+│   │   ├── events.js        # Game event handling
+│   │   ├── state.js         # State interpolation management
+│   │   ├── lifecycle.js     # Network event lifecycle handlers
+│   │   ├── gameloop.js      # RequestAnimationFrame loop and FPS
+│   │   └── modals.js        # Controls and how-to-play modals
+│   ├── assets/
+│   │   └── sounds/          # AI-generated vocal sound effects (MP3)
+│   ├── css/                 # Modular stylesheets (7 files)
+│   └── index.html           # Single-page app entry point
 ├── server/
-│   ├── index.js           # Express and Socket.io setup
-│   ├── GameManager.js     # Room and player management
-│   ├── GameRoom.js        # Game instance logic
-│   ├── Combat.js          # Projectile and hit detection
-│   ├── Physics.js         # Movement and collisions
-│   └── constants.js       # Server constants
+│   ├── index.js             # Express + Socket.io setup
+│   ├── GameManager.js       # Room and player lifecycle
+│   ├── GameRoom.js          # Game instance orchestration
+│   ├── PlayerManager.js     # Player state and spawning
+│   ├── Combat.js            # Projectile and hit detection
+│   ├── Physics.js           # Movement and collisions
+│   ├── Hitbox.js            # Shared hitbox helpers
+│   ├── InputHandler.js      # Player input processing
+│   ├── StateBroadcaster.js  # Network state serialization
+│   ├── GameTimer.js         # Clock, sudden death, arena shrinking
+│   ├── PickupManager.js     # Pillow pickup spawning and collection
+│   ├── RateLimiter.js       # Input rate limiting
+│   └── constants.js         # Server configuration
 ├── shared/
-│   ├── constants.js       # Shared game constants
-│   └── geometry.js        # Collision and line-of-sight math
-├── package.json
+│   ├── constants.js         # Shared game constants (client + server)
+│   ├── geometry.js          # Collision and line-of-sight math
+│   └── names.js             # Auto-generated player names
+├── .env.example             # Environment variable template
+├── .gitignore
 ├── Dockerfile
-└── docker-compose.yml
+├── docker-compose.yml
+├── package.json
+└── task.md                  # Original project requirements
 ```
