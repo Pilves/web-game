@@ -40,45 +40,8 @@ const PROJECTILE_LIFETIME = 2000;
 const _updatedProjectiles = [];
 const _events = [];
 
-// Reusable rect objects to reduce GC pressure
-// WARNING: These are shared mutable objects! Functions that return these objects
-// (getPlayerRect, getProjectileRect) return references to these same objects.
-// Callers MUST use the returned value immediately before any other call to these
-// functions, or copy the values if they need to persist across multiple calls.
-// Example of UNSAFE code:
-//   const rect1 = getPlayerRect(player1);
-//   const rect2 = getPlayerRect(player2);  // rect1 is now INVALID, points to player2's data!
-// Example of SAFE code:
-//   const rect1 = getPlayerRect(player1);
-//   // use rect1 immediately here
-//   const rect2 = getPlayerRect(player2);
-//   // use rect2 immediately here
-const _playerRect = { x: 0, y: 0, width: PLAYER_SIZE, height: PLAYER_SIZE };
-const _projectileRect = { x: 0, y: 0, width: PROJECTILE_SIZE, height: PROJECTILE_SIZE };
-
-/**
- * Get bounding rectangle for a player (centered on position)
- * WARNING: Returns a reusable object - do not store reference, copy if needed
- * @param {Object} player - Player object with x, y coordinates
- * @returns {Object} Rectangle { x, y, width, height }
- */
-function getPlayerRect(player) {
-  _playerRect.x = player.x - PLAYER_SIZE / 2;
-  _playerRect.y = player.y - PLAYER_SIZE / 2;
-  return _playerRect;
-}
-
-/**
- * Get bounding rectangle for a projectile (centered on position)
- * WARNING: Returns a reusable object - do not store reference, copy if needed
- * @param {Object} projectile - Projectile object with x, y coordinates
- * @returns {Object} Rectangle { x, y, width, height }
- */
-function getProjectileRect(projectile) {
-  _projectileRect.x = projectile.x - PROJECTILE_SIZE / 2;
-  _projectileRect.y = projectile.y - PROJECTILE_SIZE / 2;
-  return _projectileRect;
-}
+// Import shared hitbox helpers
+const { getPlayerRect, getProjectileRect } = require('./Hitbox.js');
 
 /**
  * Check if a position is outside the arena bounds

@@ -1,52 +1,25 @@
 // DOM rendering with object pools
-import { CONFIG } from './config.js';
+import { CONFIG, debugLog } from './config.js';
+import { ProjectilePool, RipplePool, ImpactFlashPool } from './pools.js';
 
 export class Renderer {
   constructor(game) {
-    console.log('[Renderer] Constructor called');
+    debugLog('[Renderer]', 'Constructor called');
     this.game = game;
     this.arena = document.getElementById('arena');
     this.playerElements = {};
-    this.projectilePool = [];
-    this.ripplePool = [];
-    this.rippleIndex = 0;
     this.pendingTimeouts = new Set(); // Track timeouts for cleanup (Set for O(1) operations)
     this.pickupElements = {}; // Track pickup elements by ID (LOW-17: reuse instead of create/destroy)
     this.trackedPickupIds = new Set(); // Track pickup IDs to detect removed pickups (HIGH-11)
-    this.impactFlashPool = []; // Pool for impact flash elements (LOW-24)
 
-    console.log('[Renderer] Arena element:', this.arena ? 'found' : 'NOT FOUND');
+    debugLog('[Renderer]', 'Arena element:', this.arena ? 'found' : 'NOT FOUND');
 
-    this.initPools();
+    // Initialize pool instances
+    this.projectilePool = new ProjectilePool(this.arena);
+    this.ripplePool = new RipplePool(this.arena, this.pendingTimeouts);
+    this.impactFlashPool = new ImpactFlashPool(this.arena, this.pendingTimeouts);
+
     this._renderCount = 0;
-  }
-
-  initPools() {
-    // Pre-allocate projectile elements
-    for (let i = 0; i < 20; i++) {
-      const el = document.createElement('div');
-      el.className = 'projectile';
-      el.style.display = 'none';
-      this.arena.appendChild(el);
-      this.projectilePool.push({ el, active: false, id: null });
-    }
-
-    // Pre-allocate ripple elements with animation state tracking (MED-17)
-    for (let i = 0; i < 30; i++) {
-      const el = document.createElement('div');
-      el.className = 'sound-ripple';
-      this.arena.appendChild(el);
-      this.ripplePool.push({ el, animating: false, timeoutId: null });
-    }
-
-    // Pre-allocate impact flash elements (LOW-24)
-    for (let i = 0; i < 10; i++) {
-      const el = document.createElement('div');
-      el.className = 'impact-flash';
-      el.style.display = 'none';
-      this.arena.appendChild(el);
-      this.impactFlashPool.push({ el, active: false, timeoutId: null });
-    }
   }
 
   render(prevState, currState, stateTime, localPlayer) {
@@ -124,8 +97,8 @@ export class Renderer {
       }
     }
 
-    // Render projectiles
-    this.renderProjectiles(prevState, currState, t);
+    // Render projectiles (delegate to pool)
+    this.projectilePool.render(prevState, currState, t, this.lerpWrap.bind(this));
 
     // Render pickups
     this.renderPickups(currState.k);
@@ -270,97 +243,6 @@ export class Renderer {
     }
   }
 
-  renderProjectiles(prevState, currState, t) {
-    // HIGH-12: Hide inactive projectiles BEFORE early return to reset state between frames
-    // This ensures projectiles are hidden even when currState.j is empty/undefined
-    this.projectilePool.forEach(p => {
-      p.active = false;
-    });
-
-    // Skip if no projectiles - but inactive projectiles are already marked above
-    if (!currState.j) {
-      // Hide all projectiles since there are none in current state
-      this.projectilePool.forEach(p => {
-        p.el.style.display = 'none';
-        p.id = null;
-      });
-      return;
-    }
-
-    if (currState.j.length > 0) {
-      if (this._projLogCount === undefined) this._projLogCount = 0;
-      if (this._projLogCount < 10) {
-        console.log('[Renderer] renderProjectiles:', currState.j.map(p => ({id: p[0], x: p[1], y: p[2]})));
-        this._projLogCount++;
-      }
-    }
-
-    // Build Map from prevState projectiles for O(1) lookups
-    let prevProjectileMap = null;
-    if (prevState && prevState.j) {
-      prevProjectileMap = new Map();
-      for (const p of prevState.j) {
-        prevProjectileMap.set(p[0], p);
-      }
-    }
-
-    for (const pData of currState.j) {
-      const [id, x, y, vx, vy] = pData;
-
-      let renderX = x;
-      let renderY = y;
-
-      // Interpolate projectile positions with wrap-around support
-      if (prevProjectileMap) {
-        const prev = prevProjectileMap.get(id);
-        if (prev) {
-          renderX = this.lerpWrap(prev[1], x, t, CONFIG.ARENA_WIDTH);
-          renderY = this.lerpWrap(prev[2], y, t, CONFIG.ARENA_HEIGHT);
-        }
-      }
-
-      // Find or assign pool element
-      // MED-16: Add null check for poolItem to prevent null pointer exceptions
-      let poolItem = this.projectilePool.find(p => p.id === id);
-      if (!poolItem) {
-        poolItem = this.projectilePool.find(p => !p.active);
-        if (poolItem) {
-          poolItem.id = id;
-        } else {
-          // Pool exhausted - log warning
-          console.warn('[Renderer] Projectile pool exhausted, projectile', id, 'not rendered');
-          continue; // Skip this projectile
-        }
-      }
-
-      // MED-16: Additional safety check - poolItem should never be undefined here
-      // but guard against edge cases
-      if (!poolItem || !poolItem.el) {
-        console.warn('[Renderer] Invalid pool item for projectile', id);
-        continue;
-      }
-
-      poolItem.active = true;
-      poolItem.el.style.display = 'block';
-      poolItem.el.style.transform = `translate3d(${renderX - CONFIG.PROJECTILE_SIZE / 2}px, ${renderY - CONFIG.PROJECTILE_SIZE / 2}px, 0)`;
-      // HIGH-5: CSS expects projectiles at z-index 30
-      // Only update z-index when Y crosses a 100px boundary
-      const zBucket = Math.floor(renderY / 100);
-      if (poolItem.lastZBucket !== zBucket) {
-        poolItem.el.style.zIndex = 30 + zBucket;
-        poolItem.lastZBucket = zBucket;
-      }
-    }
-
-    // Hide inactive projectiles
-    this.projectilePool.forEach(p => {
-      if (!p.active) {
-        p.el.style.display = 'none';
-        p.id = null;
-      }
-    });
-  }
-
   renderPickups(pickups) {
     if (!pickups) return;
 
@@ -373,23 +255,25 @@ export class Renderer {
       ? pickupSize / 2
       : 15; // fallback: 30 / 2 = 15
 
-    // Debug: always log first 10 pickups renders to diagnose positioning issue
-    if (this._pickupLogCount === undefined) this._pickupLogCount = 0;
-    if (this._pickupLogCount < 10) {
-      console.log('[Renderer] renderPickups raw:', pickups);
-      console.log('[Renderer] renderPickups type:', Array.isArray(pickups) ? 'array' : typeof pickups);
-      console.log('[Renderer] First pickup raw:', pickups[0]);
-      console.log('[Renderer] First pickup isArray:', Array.isArray(pickups[0]));
-      if (pickups[0]) {
-        console.log('[Renderer] First pickup values:', {
-          idx0: pickups[0][0],
-          idx1: pickups[0][1],
-          idx2: pickups[0][2],
-          idx3: pickups[0][3]
-        });
+    // Debug: log first 10 pickup renders to diagnose positioning issue
+    if (CONFIG.DEBUG) {
+      if (this._pickupLogCount === undefined) this._pickupLogCount = 0;
+      if (this._pickupLogCount < 10) {
+        debugLog('[Renderer]', 'renderPickups raw:', pickups);
+        debugLog('[Renderer]', 'renderPickups type:', Array.isArray(pickups) ? 'array' : typeof pickups);
+        debugLog('[Renderer]', 'First pickup raw:', pickups[0]);
+        debugLog('[Renderer]', 'First pickup isArray:', Array.isArray(pickups[0]));
+        if (pickups[0]) {
+          debugLog('[Renderer]', 'First pickup values:', {
+            idx0: pickups[0][0],
+            idx1: pickups[0][1],
+            idx2: pickups[0][2],
+            idx3: pickups[0][3]
+          });
+        }
+        debugLog('[Renderer]', 'CONFIG.PICKUP_SIZE:', CONFIG.PICKUP_SIZE, 'halfSize:', halfSize);
+        this._pickupLogCount++;
       }
-      console.log('[Renderer] CONFIG.PICKUP_SIZE:', CONFIG.PICKUP_SIZE, 'halfSize:', halfSize);
-      this._pickupLogCount++;
     }
 
     // HIGH-11: Track current pickup IDs to detect removed pickups
@@ -428,10 +312,12 @@ export class Renderer {
         const leftVal = x - halfSize;
         const topVal = y - halfSize;
         // Log first 4 pickup creations to diagnose positioning
-        if (this._pickupCreateCount === undefined) this._pickupCreateCount = 0;
-        if (this._pickupCreateCount < 4) {
-          console.log(`[Renderer] Creating pickup ${id}: x=${x}, y=${y}, halfSize=${halfSize}, left=${leftVal}px, top=${topVal}px`);
-          this._pickupCreateCount++;
+        if (CONFIG.DEBUG) {
+          if (this._pickupCreateCount === undefined) this._pickupCreateCount = 0;
+          if (this._pickupCreateCount < 4) {
+            debugLog('[Renderer]', `Creating pickup ${id}: x=${x}, y=${y}, halfSize=${halfSize}, left=${leftVal}px, top=${topVal}px`);
+            this._pickupCreateCount++;
+          }
         }
         el.style.left = `${leftVal}px`;
         el.style.top = `${topVal}px`;
@@ -469,52 +355,7 @@ export class Renderer {
   }
 
   showSoundRipple(x, y, type = 'footstep') {
-    // MED-17: Find a ripple that is not currently animating to avoid race conditions
-    let poolItem = null;
-    let startIndex = this.rippleIndex;
-
-    // Try to find a non-animating ripple
-    // Note: This loop uses index-based access rather than iterators, so it is safe
-    // from concurrent modification issues. The pool array is not modified during iteration.
-    for (let i = 0; i < this.ripplePool.length; i++) {
-      const idx = (startIndex + i) % this.ripplePool.length;
-      if (!this.ripplePool[idx].animating) {
-        poolItem = this.ripplePool[idx];
-        this.rippleIndex = (idx + 1) % this.ripplePool.length;
-        break;
-      }
-    }
-
-    // If all are animating, force reuse the next one
-    if (!poolItem) {
-      poolItem = this.ripplePool[this.rippleIndex];
-      this.rippleIndex = (this.rippleIndex + 1) % this.ripplePool.length;
-      // Cancel previous timeout to prevent race condition
-      if (poolItem.timeoutId !== null) {
-        clearTimeout(poolItem.timeoutId);
-        this.pendingTimeouts.delete(poolItem.timeoutId);
-      }
-    }
-
-    const el = poolItem.el;
-    poolItem.animating = true;
-
-    // Reset and position
-    el.style.left = `${x}px`;
-    el.style.top = `${y}px`;
-    el.className = `sound-ripple active ${type}`;
-
-    // Remove active class after animation (track timeout for cleanup)
-    // LOW-19: Use Set for O(1) add/delete operations
-    const timeoutId = setTimeout(() => {
-      el.classList.remove('active');
-      poolItem.animating = false;
-      poolItem.timeoutId = null;
-      // Remove from pending timeouts Set (O(1) operation)
-      this.pendingTimeouts.delete(timeoutId);
-    }, 500);
-    poolItem.timeoutId = timeoutId;
-    this.pendingTimeouts.add(timeoutId);
+    this.ripplePool.show(x, y, type);
   }
 
   triggerMuzzleFlash() {
@@ -528,58 +369,7 @@ export class Renderer {
   }
 
   showImpactFlash(x, y) {
-    // LOW-24: Use pool for impact flash elements instead of creating/destroying
-    const MAX_IMPACT_FLASH_POOL_SIZE = 20; // Maximum pool size to prevent unbounded growth
-    let poolItem = this.impactFlashPool.find(p => !p.active);
-
-    if (!poolItem) {
-      // Pool exhausted - check if we can grow the pool or must reuse oldest
-      if (this.impactFlashPool.length < MAX_IMPACT_FLASH_POOL_SIZE) {
-        // Create a new element if under max pool size
-        const el = document.createElement('div');
-        el.className = 'impact-flash';
-        el.style.display = 'none';
-        this.arena.appendChild(el);
-        poolItem = { el, active: false, timeoutId: null };
-        this.impactFlashPool.push(poolItem);
-      } else {
-        // Pool at max size - reuse oldest active element (first in array)
-        // SAFETY NOTE: The push(shift()) operation is safe here because:
-        // 1. This code path only executes when no inactive element was found via find()
-        // 2. The find() operation completed before we reach this branch
-        // 3. No iterator is active on impactFlashPool at this point
-        // 4. The poolItem reference is captured BEFORE the array modification
-        poolItem = this.impactFlashPool[0];
-        // Move to end of array to implement LRU behavior
-        this.impactFlashPool.push(this.impactFlashPool.shift());
-        // Cancel previous timeout to prevent race condition
-        if (poolItem.timeoutId !== null) {
-          clearTimeout(poolItem.timeoutId);
-          this.pendingTimeouts.delete(poolItem.timeoutId);
-        }
-        console.warn('[Renderer] Impact flash pool exhausted, reusing oldest element');
-      }
-    }
-
-    const el = poolItem.el;
-    poolItem.active = true;
-    el.style.display = 'block';
-    el.style.left = `${x - 30}px`;
-    el.style.top = `${y - 30}px`;
-    // Force reflow to restart animation
-    el.classList.remove('impact-flash');
-    void el.offsetWidth;
-    el.classList.add('impact-flash');
-
-    // Return to pool after animation (track timeout for cleanup)
-    const timeoutId = setTimeout(() => {
-      el.style.display = 'none';
-      poolItem.active = false;
-      poolItem.timeoutId = null;
-      this.pendingTimeouts.delete(timeoutId);
-    }, 150);
-    poolItem.timeoutId = timeoutId;
-    this.pendingTimeouts.add(timeoutId);
+    this.impactFlashPool.show(x, y);
   }
 
   lerp(a, b, t) {
@@ -658,27 +448,10 @@ export class Renderer {
     // Note: clearPickups() now handles clearing pickupElements and trackedPickupIds
     this.clearPickups();
 
-    // Hide all projectiles
-    this.projectilePool.forEach(p => {
-      p.el.style.display = 'none';
-      p.active = false;
-      p.id = null;
-    });
-
-    // Reset all ripples (MED-17: reset animation state)
-    this.ripplePool.forEach(poolItem => {
-      poolItem.el.classList.remove('active');
-      poolItem.animating = false;
-      poolItem.timeoutId = null;
-    });
-    this.rippleIndex = 0;
-
-    // Reset all impact flashes (LOW-24)
-    this.impactFlashPool.forEach(poolItem => {
-      poolItem.el.style.display = 'none';
-      poolItem.active = false;
-      poolItem.timeoutId = null;
-    });
+    // Delegate pool clearing
+    this.projectilePool.clear();
+    this.ripplePool.clear();
+    this.impactFlashPool.clear();
   }
 
   // Fully destroy the renderer, removing all pool elements from DOM
@@ -686,30 +459,10 @@ export class Renderer {
     // First clear all state and timeouts
     this.clear();
 
-    // Remove all pool elements from DOM
-    this.projectilePool.forEach(poolItem => {
-      if (poolItem.el && poolItem.el.parentNode) {
-        poolItem.el.remove();
-      }
-      poolItem.el = null;
-    });
-    this.projectilePool = [];
-
-    this.ripplePool.forEach(poolItem => {
-      if (poolItem.el && poolItem.el.parentNode) {
-        poolItem.el.remove();
-      }
-      poolItem.el = null;
-    });
-    this.ripplePool = [];
-
-    this.impactFlashPool.forEach(poolItem => {
-      if (poolItem.el && poolItem.el.parentNode) {
-        poolItem.el.remove();
-      }
-      poolItem.el = null;
-    });
-    this.impactFlashPool = [];
+    // Destroy all pools (removes elements from DOM)
+    this.projectilePool.destroy();
+    this.ripplePool.destroy();
+    this.impactFlashPool.destroy();
 
     // Clear game reference
     this.game = null;

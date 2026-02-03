@@ -6,7 +6,7 @@ import { audio } from './audio.js';
 import { effects } from './effects.js';
 import { UI } from './ui.js';
 import { Vision } from './vision.js';
-import { CONFIG } from './config.js';
+import { CONFIG, debugLog } from './config.js';
 import { setupControlsMenu as initControlsMenu, setupHowToPlayModal as initHowToPlayModal } from './modals.js';
 import { predictLocalPlayer, reconcileWithServer, initLocalPlayer } from './prediction.js';
 import { handleEvent as dispatchEvent, findPlayerInState } from './events.js';
@@ -16,7 +16,7 @@ import { GameLoop } from './gameloop.js';
 
 class Game {
   constructor() {
-    console.log('[Game] Constructor called');
+    debugLog('[Game]', 'Constructor called');
 
     // Initialize all subsystems
     this.network = new Network(this);
@@ -104,7 +104,7 @@ class Game {
   }
 
   init() {
-    console.log('[Game] init() called');
+    debugLog('[Game]', 'init() called');
 
     // Initialize subsystems that need DOM
     this.effects.init();
@@ -112,7 +112,7 @@ class Game {
     this.ui = new UI(this);
     this.vision = new Vision(this);
 
-    console.log('[Game] Subsystems initialized:', {
+    debugLog('[Game]', 'Subsystems initialized:', {
       renderer: !!this.renderer,
       ui: !!this.ui,
       vision: !!this.vision,
@@ -251,7 +251,7 @@ class Game {
 
     if (!this.localPlayer) {
       this.localPlayer = initLocalPlayer(serverPlayer);
-      console.log('[Game] Local player initialized:', this.localPlayer);
+      debugLog('[Game]', 'Local player initialized:', this.localPlayer);
       return;
     }
 
@@ -492,9 +492,8 @@ class Game {
   }
 }
 
-// Initialize and expose globally
+// Initialize
 const game = new Game();
-window.game = game;
 game.start();
 
 export { game };

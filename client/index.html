@@ -21,7 +21,7 @@
       <p class="tagline">"In the dark, everyone's a target."</p>
 
       <div class="menu-form">
-        <input type="text" id="player-name" placeholder="Enter your name" maxlength="12" autocomplete="off" aria-label="Enter your player name">
+        <input type="text" id="player-name" placeholder="Auto-named if empty" maxlength="12" autocomplete="off" aria-label="Enter your player name">
 
         <div class="menu-buttons">
           <button id="create-room-btn" class="btn btn-primary" aria-label="Create a new game room">Create Room</button>
@@ -240,6 +240,7 @@
   <script src="socket.io/socket.io.js"></script>
   <script src="shared/constants.js"></script>
   <script src="shared/geometry.js"></script>
+  <script src="shared/names.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

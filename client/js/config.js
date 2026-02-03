@@ -15,10 +15,19 @@ const sharedConsts = (typeof SHARED_CONSTANTS !== 'undefined' && SHARED_CONSTANT
   ? SHARED_CONSTANTS
   : {};
 
+/**
+ * Conditional debug logger - only logs when DEBUG mode is enabled
+ * @param {string} tag - Module tag e.g. '[Renderer]'
+ * @param {...any} args - Arguments to log
+ */
+export function debugLog(tag, ...args) {
+  if (DEBUG) console.log(tag, ...args);
+}
+
 // Log for debugging
-console.log('[Config] SHARED_CONSTANTS type:', typeof SHARED_CONSTANTS);
-console.log('[Config] SHARED_CONSTANTS value:', typeof SHARED_CONSTANTS !== 'undefined' ? SHARED_CONSTANTS : 'undefined');
-console.log('[Config] sharedConsts.PICKUP_SIZE:', sharedConsts.PICKUP_SIZE);
+debugLog('[Config]', 'SHARED_CONSTANTS type:', typeof SHARED_CONSTANTS);
+debugLog('[Config]', 'SHARED_CONSTANTS value:', typeof SHARED_CONSTANTS !== 'undefined' ? SHARED_CONSTANTS : 'undefined');
+debugLog('[Config]', 'sharedConsts.PICKUP_SIZE:', sharedConsts.PICKUP_SIZE);
 
 // Build CONFIG by spreading shared constants and adding client-only ones
 export const CONFIG = {
@@ -41,8 +50,8 @@ export const CONFIG = {
 };
 
 // Verify critical CONFIG values
-console.log('[Config] Final CONFIG.PICKUP_SIZE:', CONFIG.PICKUP_SIZE);
-console.log('[Config] Final CONFIG.PLAYER_SIZE:', CONFIG.PLAYER_SIZE);
+debugLog('[Config]', 'Final CONFIG.PICKUP_SIZE:', CONFIG.PICKUP_SIZE);
+debugLog('[Config]', 'Final CONFIG.PLAYER_SIZE:', CONFIG.PLAYER_SIZE);
 
 // Default key bindings
 export const DEFAULT_CONTROLS = {

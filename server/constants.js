@@ -50,4 +50,10 @@ const CONSTANTS = {
   INPUT_RATE_LIMIT: 120,          // Max input packets per second per player
 };
 
+// Debug logging helper
+function debugLog(tag, ...args) {
+  if (DEBUG) console.log(tag, ...args);
+}
+
 module.exports = CONSTANTS;
+module.exports.debugLog = debugLog;

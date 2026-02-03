@@ -10,6 +10,8 @@
  */
 
 const CONSTANTS = require('./constants');
+const { debugLog } = require('./constants');
+const Names = require('../shared/names.js');
 const Physics = require('./Physics');
 const Combat = require('./Combat');
 const RateLimiter = require('./RateLimiter');
@@ -17,6 +19,7 @@ const PickupManager = require('./PickupManager');
 const StateBroadcaster = require('./StateBroadcaster');
 const InputHandler = require('./InputHandler');
 const GameTimer = require('./GameTimer');
+const PlayerManager = require('./PlayerManager');
 
 // Footstep sound interval when sprinting (ms)
 const FOOTSTEP_INTERVAL = 300;
@@ -52,8 +55,10 @@ class GameRoom {
     // Lobby players (Map: socketId -> player object)
     this.players = new Map();
 
+    // Player manager (handles player lifecycle)
+    this.playerManager = new PlayerManager(code);
+
     // Game state (only populated when game is active)
-    this.gamePlayers = new Map(); // socketId -> game player object
     this.projectiles = [];
     this.pickupManager = new PickupManager(code);
     this.events = [];
@@ -87,9 +92,6 @@ class GameRoom {
     // Return to lobby requests
     this.returnToLobbyRequests = new Set();
 
-    // Cached object representation of gamePlayers (updated when players change)
-    this.gamePlayersObject = {};
-
     // Rate limiting for input flooding
     this.inputRateLimiter = new RateLimiter();
   }
@@ -102,15 +104,17 @@ class GameRoom {
   get suddenDeath() { return this.gameTimer.suddenDeath; }
   set suddenDeath(v) { this.gameTimer.suddenDeath = v; }
 
+  // --- Property delegation to PlayerManager ---
+  get gamePlayers() { return this.playerManager.gamePlayers; }
+  get gamePlayersObject() { return this.playerManager.gamePlayersObject; }
+  set gamePlayersObject(v) { this.playerManager.gamePlayersObject = v; }
+
   /**
    * Sync the gamePlayersObject cache with the gamePlayers Map
    * Call this after any modification to gamePlayers
    */
   syncGamePlayersObject() {
-    this.gamePlayersObject = {};
-    for (const [id, player] of this.gamePlayers) {
-      this.gamePlayersObject[id] = player;
-    }
+    this.playerManager.syncGamePlayersObject();
   }
 
   /**
@@ -162,9 +166,9 @@ class GameRoom {
     }
 
     // Sanitize and validate name
-    const sanitizedName = typeof name === 'string'
+    const sanitizedName = (typeof name === 'string' && name.trim().length > 0)
       ? name.trim().slice(0, 20)
-      : 'Player';
+      : Names.generateName();
 
     // Validate color (hex color format)
     const colorRegex = /^#[0-9A-Fa-f]{6}$/;
@@ -174,7 +178,7 @@ class GameRoom {
 
     const player = {
       id: socket.id,
-      name: sanitizedName || 'Player',
+      name: sanitizedName || Names.generateName(),
       color: sanitizedColor,
       ready: false,
       roomCode: this.code,
@@ -187,52 +191,8 @@ class GameRoom {
    * Initialize game state for all players
    */
   initializeGame() {
-    const playerList = Array.from(this.players.values());
-
-    // Initialize game players with spawn positions
-    playerList.forEach((player, index) => {
-      // Safe array access with fallback to center of arena
-      const spawnPoints = Array.isArray(CONSTANTS.SPAWN_POINTS) ? CONSTANTS.SPAWN_POINTS : [];
-      const defaultSpawn = { x: CONSTANTS.ARENA_WIDTH / 2, y: CONSTANTS.ARENA_HEIGHT / 2 };
-      const spawn = (index >= 0 && index < spawnPoints.length)
-        ? spawnPoints[index]
-        : (spawnPoints[0] || defaultSpawn);
-
-      const gamePlayer = {
-        id: player.id,
-        name: player.name,
-        color: player.color,
-        x: spawn.x,
-        y: spawn.y,
-        vx: 0,
-        vy: 0,
-        facing: 0, // radians, 0 = right
-        flashlightOn: false,
-        flashlightOnSince: 0, // Track when flashlight was turned on (for flicker)
-        hearts: this.settings.lives,
-        hasAmmo: true,  // Players start with 1 pillow
-        stunnedUntil: 0,
-        invincibleUntil: 0,
-        lastThrowTime: 0,
-        lastFootstepTime: 0,
-        lastFlashlightToggle: 0, // debounce flashlight toggle
-        input: {
-          up: false,
-          down: false,
-          left: false,
-          right: false,
-          sprint: false,
-        },
-        connected: true,
-        kills: 0,
-        deaths: 0,
-      };
-
-      this.gamePlayers.set(player.id, gamePlayer);
-    });
-
-    // Sync the cached object representation
-    this.syncGamePlayersObject();
+    // Initialize game players with spawn positions (delegated to PlayerManager)
+    this.playerManager.initializePlayers(this.players, this.settings);
 
     // Initialize pickups at random positions (avoiding obstacles)
     this.pickupManager.initialize(this.arenaInset);
@@ -331,9 +291,9 @@ class GameRoom {
       settings: this.settings,
     };
 
-    console.log(`[GameRoom ${this.code}] Starting game with ${gameStartData.players.length} players`);
-    console.log(`[GameRoom ${this.code}] Player positions:`, gameStartData.players.map(p => ({ id: p[0].substring(0, 8), x: p[1], y: p[2] })));
-    console.log(`[GameRoom ${this.code}] Pickups in game-start:`, gameStartData.pickups);
+    debugLog(`[GameRoom ${this.code}]`, `Starting game with ${gameStartData.players.length} players`);
+    debugLog(`[GameRoom ${this.code}]`, 'Player positions:', gameStartData.players.map(p => ({ id: p[0].substring(0, 8), x: p[1], y: p[2] })));
+    debugLog(`[GameRoom ${this.code}]`, 'Pickups in game-start:', gameStartData.pickups);
 
     // Emit game start
     this.io.to(this.code).emit('game-start', gameStartData);
@@ -661,10 +621,7 @@ class GameRoom {
       return;
     }
 
-    const player = this.gamePlayers.get(playerId);
-    if (player) {
-      player.connected = false;
-    }
+    this.playerManager.handleDisconnect(playerId);
     // Clean up input rate tracking to prevent memory leak
     this.inputRateLimiter.remove(playerId);
 
@@ -685,10 +642,7 @@ class GameRoom {
       return;
     }
 
-    const player = this.gamePlayers.get(playerId);
-    if (player) {
-      player.connected = false;
-    }
+    this.playerManager.removePlayer(playerId);
   }
 
   /**
@@ -696,8 +650,7 @@ class GameRoom {
    * @returns {Array} Array of active players
    */
   getActivePlayers() {
-    return Array.from(this.gamePlayers.values())
-      .filter(p => p.connected && p.hearts > 0);
+    return this.playerManager.getActivePlayers();
   }
 
   /**
@@ -713,8 +666,7 @@ class GameRoom {
       this.autoReturnTimeout = null;
     }
     this.state = 'lobby';
-    this.gamePlayers.clear();
-    this.syncGamePlayersObject();
+    this.playerManager.reset();
     this.projectiles = [];
     this.pickupManager.reset();
     this.events = [];
