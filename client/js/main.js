@@ -6,7 +6,7 @@ import { audio } from './audio.js';
 import { effects } from './effects.js';
 import { UI } from './ui.js';
 import { Vision } from './vision.js';
-import { CONFIG, debugLog } from './config.js';
+import { CONFIG } from './config.js';
 import { setupControlsMenu as initControlsMenu, setupHowToPlayModal as initHowToPlayModal } from './modals.js';
 import { predictLocalPlayer, reconcileWithServer, initLocalPlayer } from './prediction.js';
 import { handleEvent as dispatchEvent, findPlayerInState } from './events.js';
@@ -16,9 +16,6 @@ import { GameLoop } from './gameloop.js';
 
 class Game {
   constructor() {
-    debugLog('[Game]', 'Constructor called');
-
-    // Initialize all subsystems
     this.network = new Network(this);
     this.input = new Input(this);
     this.renderer = null; // Initialized after DOM ready
@@ -75,19 +72,16 @@ class Game {
   get arenaInset() { return this.stateManager.arenaInset; }
   set arenaInset(v) { this.stateManager.arenaInset = v; }
 
-  // Validate and perform state transition
   transitionState(newState) {
     const validTargets = this.validTransitions[this.state];
     if (!validTargets || !validTargets.includes(newState)) {
       console.warn(`[Game] Invalid state transition from '${this.state}' to '${newState}'`);
       return false;
     }
-    console.log(`[Game] State transition: ${this.state} -> ${newState}`);
     this.state = newState;
     return true;
   }
 
-  // Check if a state transition is valid without performing it
   canTransitionTo(newState) {
     const validTargets = this.validTransitions[this.state];
     return validTargets && validTargets.includes(newState);
@@ -104,20 +98,10 @@ class Game {
   }
 
   init() {
-    debugLog('[Game]', 'init() called');
-
-    // Initialize subsystems that need DOM
     this.effects.init();
     this.renderer = new Renderer(this);
     this.ui = new UI(this);
     this.vision = new Vision(this);
-
-    debugLog('[Game]', 'Subsystems initialized:', {
-      renderer: !!this.renderer,
-      ui: !!this.ui,
-      vision: !!this.vision,
-      arena: !!document.getElementById('arena')
-    });
 
     // Connect to server
     this.network.connect();
@@ -147,8 +131,6 @@ class Game {
 
   // Per-frame tick (called by GameLoop)
   _tick(cappedDt) {
-    const shouldLog = this.gameLoop.shouldDebugLog();
-
     if (this.state === 'playing') {
       // Update interpolation timer
       this.stateManager.advanceInterpolation(cappedDt * 1000);
@@ -159,18 +141,6 @@ class Game {
       if (shouldSend && !this.isSpectating) {
         this.network.sendInput(input);
         this.gameLoop.markInputSent();
-      }
-
-      if (CONFIG.DEBUG && shouldLog && input) {
-        console.log('[Game] Playing state - Input:', {
-          up: input.up, down: input.down, left: input.left, right: input.right,
-          facing: input.facing?.toFixed(2),
-          hasLocalPlayer: !!this.localPlayer,
-          hasServerState: !!this.serverState,
-          localPlayerPos: this.localPlayer ? `(${this.localPlayer.x?.toFixed(0)}, ${this.localPlayer.y?.toFixed(0)})` : 'N/A'
-        });
-      } else if (CONFIG.DEBUG && shouldLog && this.isSpectating) {
-        console.log('[Game] Spectating - watching game');
       }
 
       // Predict local player movement
@@ -187,14 +157,12 @@ class Game {
           this.localPlayer
         );
       }
-    } else if (CONFIG.DEBUG && shouldLog && this.state !== 'menu') {
-      console.log('[Game] Current state:', this.state, '| myId:', this.myId);
     }
   }
 
   // Handle incoming server state
   onServerState(state) {
-    // Process events BEFORE updating serverState to avoid stale state reference
+    // Process events before updating serverState
     if (state && state.e && state.e.length > 0) {
       const playerMap = new Map();
       if (state.p) {
@@ -251,7 +219,6 @@ class Game {
 
     if (!this.localPlayer) {
       this.localPlayer = initLocalPlayer(serverPlayer);
-      debugLog('[Game]', 'Local player initialized:', this.localPlayer);
       return;
     }
 
@@ -276,28 +243,14 @@ class Game {
   onDisconnect() { lifecycle.onDisconnect(this); }
   onReconnect() { lifecycle.onReconnect(this); }
 
-  // Validate that the game state can be restored on reconnect
   validateReconnectState() {
-    // Must have room code and player name stored in network
-    if (!this.network.roomCode || !this.network.playerName) {
-      console.log('[Game] No room/player info to restore');
-      return false;
-    }
-
-    // Must be connected
-    if (!this.network.connected) {
-      console.log('[Game] Not connected, cannot restore');
-      return false;
-    }
-
+    if (!this.network.roomCode || !this.network.playerName) return false;
+    if (!this.network.connected) return false;
     return true;
   }
 
   // Called when leaving the game voluntarily (quit button, etc.)
   leaveGame() {
-    console.log('[Game] leaveGame called');
-
-    // Clean up game state
     this.localPlayer = null;
     this.serverState = null;
     this.prevServerState = null;
@@ -376,9 +329,6 @@ class Game {
   // Full cleanup of all game resources and event listeners
   // Called when the game is being destroyed (e.g., page unload)
   destroy() {
-    console.log('[Game] destroy called');
-
-    // Stop the game loop
     this.stopGameLoop();
 
     // Cleanup input listeners
@@ -424,9 +374,7 @@ class Game {
     // Resume audio context on first user interaction
     const resumeAudio = async () => {
       if (!this.audioInitialized) {
-        // Set flag BEFORE awaiting to prevent race condition with multiple calls
         this.audioInitialized = true;
-        // Remove listeners IMMEDIATELY after setting flag to prevent accumulation on rapid clicks
         this._removeDocumentListener('click', resumeAudio);
         this._removeDocumentListener('keydown', resumeAudio);
         try {
@@ -435,7 +383,6 @@ class Game {
         } catch (err) {
           console.error('[Game] Audio init failed:', err);
           // Reset flag on failure so it can be retried on next user interaction
-          // Note: listeners are already removed, so user needs to trigger another action
           this.audioInitialized = false;
         }
       }
@@ -451,8 +398,6 @@ class Game {
     // Set up how to play modal
     this.setupHowToPlayModal();
 
-    // Note: Button event listeners are handled by UI class (ui.js)
-    // to avoid duplicate handlers
   }
 
   // Track and add a document-level event listener

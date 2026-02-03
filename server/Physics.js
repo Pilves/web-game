@@ -5,27 +5,12 @@
 const CONSTANTS = require('./constants.js');
 const GEOMETRY = require('../shared/geometry.js');
 
-// Import shared geometry functions
-const { rectsCollide, pointInRect, normalizeAngle, hasLineOfSight } = GEOMETRY;
+const { rectsCollide } = GEOMETRY;
+const { getPlayerRect } = require('./Hitbox.js');
 
-// Import shared hitbox helpers
-const { getPlayerRect, getProjectileRect } = require('./Hitbox.js');
-
-// ============================================
-// Movement
-// ============================================
-
-/**
- * Apply input to player velocity
- * @param {Object} player - Player object with vx, vy, input, stunnedUntil properties
- * @param {Object} input - Input state {up, down, left, right, sprint}
- * @param {number} dt - Delta time in seconds
- */
 function applyInput(player, input, dt) {
-  // Can't move while stunned
   const now = Date.now();
   if (player.stunnedUntil && now < player.stunnedUntil) {
-    // Apply friction while stunned (framerate independent)
     const frictionFactor = Math.pow(CONSTANTS.PLAYER_FRICTION, dt * 60);
     player.vx *= frictionFactor;
     player.vy *= frictionFactor;
@@ -65,37 +50,23 @@ function applyInput(player, input, dt) {
   }
 }
 
-/**
- * Move player and handle collisions
- * @param {Object} player - Player object with x, y, vx, vy properties
- * @param {number} dt - Delta time in seconds
- * @param {Array} obstacles - Array of obstacle rectangles
- * @param {number} arenaInset - Arena inset for sudden death (shrinking arena)
- */
 function movePlayer(player, dt, obstacles, arenaInset = 0) {
   const halfSize = CONSTANTS.PLAYER_SIZE / 2;
 
-  // Calculate arena boundaries with inset
   const minX = arenaInset + halfSize;
   const maxX = CONSTANTS.ARENA_WIDTH - arenaInset - halfSize;
   const minY = arenaInset + halfSize;
   const maxY = CONSTANTS.ARENA_HEIGHT - arenaInset - halfSize;
 
-  // Apply velocity to position
   const newX = player.x + player.vx * dt;
   const newY = player.y + player.vy * dt;
-
-  // Store old position for collision resolution
   const oldX = player.x;
   const oldY = player.y;
 
-  // Update position
   player.x = newX;
   player.y = newY;
 
-  // Check wall boundaries - wrap around like Snake (except during sudden death)
   if (arenaInset <= 0) {
-    // Wrap around mode
     const arenaWidth = CONSTANTS.ARENA_WIDTH;
     const arenaHeight = CONSTANTS.ARENA_HEIGHT;
 
@@ -110,7 +81,6 @@ function movePlayer(player, dt, obstacles, arenaInset = 0) {
       player.y -= arenaHeight;
     }
   } else {
-    // During sudden death, clamp to shrinking arena
     if (player.x < minX) {
       player.x = minX;
       player.vx = 0;
@@ -129,150 +99,47 @@ function movePlayer(player, dt, obstacles, arenaInset = 0) {
     }
   }
 
-  // Check obstacle collisions
   for (const obstacle of obstacles) {
-    const playerRect = getPlayerRect(player);  // Move inside loop
+    const playerRect = getPlayerRect(player);
     if (rectsCollide(playerRect, obstacle)) {
-      // Resolve collision by pushing player out
       resolveCollision(player, obstacle, oldX, oldY);
     }
   }
 }
 
-/**
- * Resolve collision between player and obstacle
- * Push player out of obstacle along the axis of least penetration
- * @param {Object} player - Player object
- * @param {Object} obstacle - Obstacle rectangle
- * @param {number} oldX - Previous X position
- * @param {number} oldY - Previous Y position
- */
 function resolveCollision(player, obstacle, oldX, oldY) {
   const halfSize = CONSTANTS.PLAYER_SIZE / 2;
   const playerRect = getPlayerRect(player);
 
-  // Calculate overlap on each axis (distance to escape in each direction)
-  // overlapLeft: distance to move LEFT to escape (player's right edge past obstacle's left edge)
-  // overlapRight: distance to move RIGHT to escape (obstacle's right edge past player's left edge)
-  // overlapTop: distance to move UP to escape (player's bottom edge past obstacle's top edge)
-  // overlapBottom: distance to move DOWN to escape (obstacle's bottom edge past player's top edge)
   const overlapLeft = (playerRect.x + playerRect.width) - obstacle.x;
   const overlapRight = (obstacle.x + obstacle.width) - playerRect.x;
   const overlapTop = (playerRect.y + playerRect.height) - obstacle.y;
   const overlapBottom = (obstacle.y + obstacle.height) - playerRect.y;
 
-  // Find minimum overlap on each axis to determine shortest escape direction
   const minOverlapX = Math.min(overlapLeft, overlapRight);
   const minOverlapY = Math.min(overlapTop, overlapBottom);
 
-  // Push out along axis of least penetration (shortest distance to escape collision)
-  // Note: overlapLeft measures penetration of player's right edge past obstacle's left edge
-  // A smaller overlapLeft means less distance to push LEFT to escape
   if (minOverlapX < minOverlapY) {
-    // Push horizontally - less penetration on X axis
     if (overlapLeft < overlapRight) {
-      // Smaller left overlap: push player LEFT (before obstacle's left edge)
       player.x = obstacle.x - halfSize;
     } else {
-      // Smaller right overlap: push player RIGHT (past obstacle's right edge)
       player.x = obstacle.x + obstacle.width + halfSize;
     }
     player.vx = 0;
   } else {
-    // Push vertically - less penetration on Y axis
     if (overlapTop < overlapBottom) {
-      // Smaller top overlap: push player UP (above obstacle's top edge)
       player.y = obstacle.y - halfSize;
     } else {
-      // Smaller bottom overlap: push player DOWN (below obstacle's bottom edge)
       player.y = obstacle.y + obstacle.height + halfSize;
     }
     player.vy = 0;
   }
 }
 
-// ============================================
-// Visibility Check
-// ============================================
-
-/**
- * Check if target player is visible to viewer
- * @param {Object} viewer - The player doing the looking
- * @param {Object} target - The player being looked at
- * @param {Array} obstacles - Array of obstacle rectangles
- * @param {boolean} muzzleFlashActive - Whether muzzle flash is currently active
- * @returns {boolean} True if target is visible to viewer
- */
-function isPlayerVisible(viewer, target, obstacles, muzzleFlashActive) {
-  // Validate viewer and target exist with required properties
-  if (!viewer || typeof viewer.x !== 'number' || typeof viewer.y !== 'number' ||
-      typeof viewer.facing !== 'number') {
-    return false;
-  }
-  if (!target || typeof target.x !== 'number' || typeof target.y !== 'number') {
-    return false;
-  }
-
-  // During muzzle flash, everyone is visible
-  if (muzzleFlashActive) {
-    return true;
-  }
-
-  // If viewer's flashlight is off, they can't see anyone
-  if (!viewer.flashlightOn) {
-    return false;
-  }
-
-  // Calculate vector from viewer to target
-  const dx = target.x - viewer.x;
-  const dy = target.y - viewer.y;
-  const distance = Math.hypot(dx, dy);
-
-  // Check if target is within flashlight range
-  if (distance > CONSTANTS.FLASHLIGHT_RANGE) {
-    return false;
-  }
-
-  // Calculate angle to target
-  const angleToTarget = Math.atan2(dy, dx);
-
-  // Calculate angle difference (normalized)
-  const angleDiff = normalizeAngle(angleToTarget - viewer.facing);
-
-  // Convert flashlight angle from degrees to radians and get half cone
-  const halfCone = (CONSTANTS.FLASHLIGHT_ANGLE / 2) * (Math.PI / 180);
-
-  // Check if target is within flashlight cone
-  if (Math.abs(angleDiff) > halfCone) {
-    return false;
-  }
-
-  // Check line of sight (obstacle blocking)
-  return hasLineOfSight(viewer.x, viewer.y, target.x, target.y, obstacles);
-}
-
-// ============================================
-// Exports
-// ============================================
-
 module.exports = {
-  // AABB Collision Detection
   rectsCollide,
-  pointInRect,
-
-  // Hitbox Helpers
   getPlayerRect,
-  getProjectileRect,
-
-  // Movement
   applyInput,
   movePlayer,
   resolveCollision,
-
-  // Line of Sight
-  hasLineOfSight,
-
-  // Visibility
-  isPlayerVisible,
-  normalizeAngle,
 };

@@ -3,7 +3,6 @@ import { controls, CONFIG } from './config.js';
 
 export class Input {
   constructor(game) {
-    console.log('[Input] Constructor called');
     this.game = game;
     this.keys = {};
     this.mouseX = 0;
@@ -12,14 +11,12 @@ export class Input {
     // If mouse never moves, player faces right by default.
     this.facing = 0;
     this.flashlightToggle = false;
-    this.throwPending = false;  // Track throw action like flashlight
-    this._loggedKeys = false;
+    this.throwPending = false;
 
     // Store handler references for cleanup
     this._handlers = {};
 
     this.bindEvents();
-    console.log('[Input] Events bound');
   }
 
   bindEvents() {
@@ -34,14 +31,6 @@ export class Input {
 
       this.keys[e.code] = true;
 
-      // Log first movement key press
-      if (!this._loggedKeys && (controls.isAction('up', e.code) || controls.isAction('down', e.code) ||
-          controls.isAction('left', e.code) || controls.isAction('right', e.code))) {
-        console.log('[Input] First movement key detected:', e.code);
-        this._loggedKeys = true;
-      }
-
-      // Prevent defaults for game keys (only during gameplay)
       if (this.game.state === 'playing') {
         if (controls.isAction('up', e.code) || controls.isAction('down', e.code) ||
             controls.isAction('left', e.code) || controls.isAction('right', e.code) ||
@@ -53,18 +42,13 @@ export class Input {
       // Handle flashlight toggle (not hold)
       if (controls.isAction('flashlight', e.code) && !e.repeat) {
         this.flashlightToggle = true;
-        console.log('[Input] Flashlight toggle');
       }
 
-      // Handle throw action (like flashlight, use pending flag so it's not missed)
       if (controls.isAction('throw', e.code) && !e.repeat) {
         this.throwPending = true;
-        console.log('[Input] Throw key pressed:', e.code);
       }
 
-      // Pause
       if (controls.isAction('pause', e.code)) {
-        console.log('[Input] Pause pressed');
         this.game.togglePause();
       }
     };
@@ -94,18 +78,14 @@ export class Input {
       this.mouseX = (e.clientX - rect.left) * scaleX;
       this.mouseY = (e.clientY - rect.top) * scaleY;
 
-      // Calculate facing angle from local player position to mouse
-      // Defensive checks to prevent NaN from persisting if localPlayer coordinates are invalid
       const localPlayer = this.game.localPlayer;
       if (!localPlayer) return;
 
       const playerX = localPlayer.x;
       const playerY = localPlayer.y;
 
-      // Ensure player coordinates are valid numbers (not undefined, null, or NaN)
       if (typeof playerX !== 'number' || typeof playerY !== 'number' ||
           Number.isNaN(playerX) || Number.isNaN(playerY)) {
-        // Keep previous facing value (or default of 0) - don't update with invalid data
         return;
       }
 
@@ -127,7 +107,6 @@ export class Input {
         // Check if left click is throw action
         if (controls.isAction('throw', 'Mouse0')) {
           this.throwPending = true;
-          console.log('[Input] Throw via left click');
         }
       }
       if (e.button === 1) this.keys['Mouse1'] = true;  // Middle click
@@ -171,7 +150,6 @@ export class Input {
     window.addEventListener('blur', this._handlers.blur);
   }
 
-  // Remove all event listeners to prevent memory leaks
   destroy() {
     if (this._handlers) {
       window.removeEventListener('keydown', this._handlers.keydown);
@@ -189,7 +167,6 @@ export class Input {
     // Check each action against configured keys
     const isPressed = (action) => {
       const keys = controls.get(action) || [];
-      // Use explicit boolean to avoid returning undefined
       return keys.some(key => !!this.keys[key]);
     };
 
@@ -213,16 +190,10 @@ export class Input {
     return input;
   }
 
-  /**
-   * Reset all input state. Call this on:
-   * - Game start (new game)
-   * - Disconnect from server
-   * - Any state transition that should clear pending inputs
-   */
   reset() {
     this.keys = {};
     this.flashlightToggle = false;
     this.throwPending = false;
-    // Note: facing is intentionally NOT reset - it retains the last known direction
+    // facing intentionally not reset
   }
 }

@@ -12,7 +12,6 @@ export class Audio {
     this.initializing = false;
   }
 
-  // Initialize audio context (must be called after user interaction)
   async init() {
     if (this.ctx) return;
     if (this.initializing) return;
@@ -72,18 +71,14 @@ export class Audio {
 
     // Generate fallback sounds for any that failed to load
     if (failedSounds.length > 0) {
-      console.log(`Generating ${failedSounds.length} fallback sounds...`);
       const generatedSounds = this.soundGenerator.generateAllSounds();
 
       for (const name of failedSounds) {
         if (generatedSounds[name]) {
           this.sounds[name] = generatedSounds[name];
-          console.log(`Generated fallback for: ${name}`);
         }
       }
     }
-
-    console.log('Audio loaded:', Object.keys(this.sounds).length, 'sounds');
   }
 
   // Generate all sounds synthetically (useful when no MP3 files are available)
@@ -101,7 +96,6 @@ export class Audio {
       }
     }
 
-    console.log('All fallback sounds generated');
   }
 
   // Resume audio context (required after user interaction)

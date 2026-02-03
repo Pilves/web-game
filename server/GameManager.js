@@ -2,10 +2,6 @@ const CONSTANTS = require('./constants');
 const GameRoom = require('./GameRoom');
 const RateLimiter = require('./RateLimiter');
 
-/**
- * GameManager handles room management, player tracking, and coordinates
- * between lobby and game states for the LIGHTS OUT game.
- */
 class GameManager {
   constructor(io) {
     this.io = io;
@@ -15,40 +11,20 @@ class GameManager {
     this.rateLimiter = new RateLimiter();
   }
 
-  /**
-   * Check if an event is rate limited for a socket
-   * @param {string} socketId - The socket ID
-   * @param {string} event - The event name
-   * @param {number} cooldownMs - Cooldown in milliseconds (default 500ms)
-   * @returns {boolean} - true if allowed, false if rate limited
-   */
   checkEventRateLimit(socketId, event, cooldownMs = 500) {
     return this.rateLimiter.checkCooldown(`${socketId}:${event}`, cooldownMs);
   }
 
-  /**
-   * Clean up rate limit entries for a disconnected socket
-   * @param {string} socketId - The socket ID to clean up
-   */
   cleanupRateLimits(socketId) {
     this.rateLimiter.cleanup(`${socketId}:`);
   }
 
-  /**
-   * Clean up stale rate limit entries periodically
-   * Call this periodically (e.g., every 5 minutes) to clean stale entries
-   */
   cleanupStaleRateLimits() {
     this.rateLimiter.cleanupStale();
   }
 
-  /**
-   * Generate a unique 4-letter room code
-   * With 24 chars and 4 positions = 331,776 possible codes
-   * Max iterations prevents infinite loop if server is overloaded
-   */
   generateRoomCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // Excluded I and O to avoid confusion
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O
     const maxPossibleCodes = Math.pow(chars.length, CONSTANTS.ROOM_CODE_LENGTH);
     const maxIterations = Math.min(1000, maxPossibleCodes);
     let code;
@@ -70,9 +46,6 @@ class GameManager {
     return code;
   }
 
-  /**
-   * Get the next available player color for a room
-   */
   getNextColor(room) {
     const usedColors = new Set(
       Array.from(room.players.values()).map(p => p.color)
@@ -85,9 +58,6 @@ class GameManager {
     return CONSTANTS.PLAYER_COLORS[0]; // Fallback
   }
 
-  /**
-   * Check if a name is unique within a room
-   */
   isNameUnique(room, name, excludeSocketId = null) {
     for (const [socketId, player] of room.players) {
       if (socketId !== excludeSocketId && player.name.toLowerCase() === name.toLowerCase()) {
@@ -97,17 +67,12 @@ class GameManager {
     return true;
   }
 
-  /**
-   * Create a new room with the socket as host
-   */
   createRoom(socket, data) {
-    // Rate limiting: Check if server is at maximum room capacity
     if (this.rooms.size >= CONSTANTS.MAX_ROOMS) {
       socket.emit('join-error', { message: 'Server is full. Try again later.' });
       return;
     }
 
-    // Rate limiting: Check room creation cooldown
     if (this.roomCreationCooldown.has(socket.id)) {
       socket.emit('join-error', { message: 'Please wait before creating another room' });
       return;
@@ -120,43 +85,25 @@ class GameManager {
       return;
     }
 
-    // Sanitize name using whitelist approach: only allow alphanumeric, spaces, underscores, and hyphens
-    // This prevents XSS and other injection attacks more comprehensively than blacklisting dangerous characters
     const playerName = name.trim().substring(0, 20).replace(/[^a-zA-Z0-9 _-]/g, '');
 
-    // TOCTOU fix: Generate code and atomically check-and-set
-    // Use a loop to handle race condition where another request could create
-    // a room with the same code between generateRoomCode() and rooms.set()
     let code = null;
     let room = null;
     const maxAttempts = 10;
 
-    // TOCTOU Safety Note: JavaScript/Node.js is single-threaded with an event loop model.
-    // This means the code between generateRoomCode() and rooms.set() executes atomically
-    // without any other code interleaving (no preemption). The only "race" that could occur
-    // is if generateRoomCode() itself generates a code that was created by a previous
-    // iteration of this loop, which is already handled by the do-while check inside
-    // generateRoomCode(). The retry loop below provides additional defense-in-depth
-    // in case the rooms Map is modified by another event handler between calls.
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       code = this.generateRoomCode();
 
-      // Handle room code generation failure (too many active rooms)
       if (!code) {
         socket.emit('join-error', { message: 'Server is busy. Please try again later.' });
         return;
       }
 
-      // Double-check the code is still available right before setting.
-      // While JavaScript is single-threaded (no true concurrent execution),
-      // this check provides defense-in-depth against potential edge cases.
       if (!this.rooms.has(code)) {
-        // Create the game room immediately after verification
         room = new GameRoom(this.io, code, socket.id);
         this.rooms.set(code, room);
         break;
       }
-      // Code was taken (should be rare in single-threaded environment), try again
     }
 
     if (!room) {
@@ -164,11 +111,9 @@ class GameManager {
       return;
     }
 
-    // Set room creation cooldown
     this.roomCreationCooldown.set(socket.id, Date.now());
     setTimeout(() => this.roomCreationCooldown.delete(socket.id), CONSTANTS.ROOM_CREATION_COOLDOWN);
 
-    // Create player object
     const player = {
       id: socket.id,
       name: playerName,
@@ -177,23 +122,14 @@ class GameManager {
       roomCode: code,
     };
 
-    // Add player to tracking
     this.players.set(socket.id, player);
     room.players.set(socket.id, player);
-
-    // Join socket.io room for broadcasting
     socket.join(code);
 
-    // Notify client
     socket.emit('room-created', { code });
     this.broadcastLobbyUpdate(room);
-
-    console.log(`Room ${code} created by ${playerName} (${socket.id})`);
   }
 
-  /**
-   * Join an existing room
-   */
   joinRoom(socket, data) {
     const { code, name } = data || {};
 
@@ -213,19 +149,14 @@ class GameManager {
       return;
     }
 
-    // Sanitize name using whitelist approach: only allow alphanumeric, spaces, underscores, and hyphens
-    // This prevents XSS and other injection attacks more comprehensively than blacklisting dangerous characters
     const playerName = name.trim().substring(0, 20).replace(/[^a-zA-Z0-9 _-]/g, '');
 
-    // TOCTOU fix: Perform all validation and mutation atomically
-    // Get room and validate all conditions in one block before any mutations
     const room = this.rooms.get(roomCode);
     if (!room) {
       socket.emit('join-error', { message: 'Room not found' });
       return;
     }
 
-    // Validate all conditions before any state changes
     if (room.players.size >= CONSTANTS.MAX_PLAYERS) {
       socket.emit('join-error', { message: 'Room is full' });
       return;
@@ -241,10 +172,8 @@ class GameManager {
       return;
     }
 
-    // Get next available color
     const color = this.getNextColor(room);
 
-    // Create player object
     const player = {
       id: socket.id,
       name: playerName,
@@ -253,15 +182,13 @@ class GameManager {
       roomCode: roomCode,
     };
 
-    // TOCTOU fix: Re-verify room still exists before mutations
-    // Room could have been deleted between validation and now
+    // Re-verify room still exists before mutations
     const roomVerify = this.rooms.get(roomCode);
     if (!roomVerify || roomVerify !== room) {
       socket.emit('join-error', { message: 'Room no longer available' });
       return;
     }
 
-    // Re-check critical conditions that could have changed
     if (roomVerify.players.size >= CONSTANTS.MAX_PLAYERS) {
       socket.emit('join-error', { message: 'Room is full' });
       return;
@@ -272,27 +199,15 @@ class GameManager {
       return;
     }
 
-    // Add player to tracking (atomic operation on Map)
     this.players.set(socket.id, player);
     roomVerify.players.set(socket.id, player);
-
-    // Join socket.io room
     socket.join(roomCode);
 
-    // Notify the joining player directly first (ensures they receive it)
     socket.emit('room-joined', { code: roomCode });
-
-    // Then notify all players in room (including the new player via room broadcast)
     this.broadcastLobbyUpdate(roomVerify);
-
-    console.log(`${playerName} (${socket.id}) joined room ${roomCode}`);
   }
 
-  /**
-   * Toggle player ready state
-   */
   toggleReady(socket) {
-    // Rate limit: 500ms cooldown
     if (!this.checkEventRateLimit(socket.id, 'toggle-ready', 500)) return;
 
     const player = this.players.get(socket.id);
@@ -307,11 +222,7 @@ class GameManager {
     this.broadcastLobbyUpdate(room);
   }
 
-  /**
-   * Host kicks a player from the room
-   */
   kickPlayer(socket, data) {
-    // Rate limit: 500ms cooldown
     if (!this.checkEventRateLimit(socket.id, 'kick-player', 500)) return;
 
     const { playerId } = data || {};
@@ -341,28 +252,19 @@ class GameManager {
     const kickedPlayer = room.players.get(playerId);
     if (!kickedPlayer) return;
 
-    // Remove from room
     room.players.delete(playerId);
     this.players.delete(playerId);
 
-    // Get the kicked player's socket and remove from socket.io room
     const kickedSocket = this.io.sockets.sockets.get(playerId);
     if (kickedSocket) {
       kickedSocket.leave(room.code);
-      // Emit 'kicked' event so client can handle it properly
       kickedSocket.emit('kicked');
     }
 
     this.broadcastLobbyUpdate(room);
-
-    console.log(`${kickedPlayer.name} was kicked from room ${room.code}`);
   }
 
-  /**
-   * Host updates game settings
-   */
   updateSettings(socket, data) {
-    // Rate limit: 200ms cooldown (faster for UI responsiveness)
     if (!this.checkEventRateLimit(socket.id, 'update-settings', 200)) return;
 
     if (!data || typeof data !== 'object') return;
@@ -381,7 +283,6 @@ class GameManager {
 
     const { lives, timeLimit } = data;
 
-    // Validate and update lives
     if (lives !== undefined) {
       const livesNum = parseInt(lives, 10);
       if (!isNaN(livesNum) && livesNum >= 1 && livesNum <= CONSTANTS.MAX_LIVES) {
@@ -389,7 +290,6 @@ class GameManager {
       }
     }
 
-    // Validate and update time limit
     if (timeLimit !== undefined) {
       const timeLimitNum = parseInt(timeLimit, 10);
       if (!isNaN(timeLimitNum) &&
@@ -402,9 +302,6 @@ class GameManager {
     this.broadcastLobbyUpdate(room);
   }
 
-  /**
-   * Host starts the game
-   */
   startGame(socket) {
     const player = this.players.get(socket.id);
     if (!player) return;
@@ -428,7 +325,6 @@ class GameManager {
       return;
     }
 
-    // Check if enough players are ready (excluding host)
     const readyCount = Array.from(room.players.values())
       .filter(p => p.id !== room.host && p.ready).length;
     const nonHostCount = room.players.size - 1;
@@ -439,35 +335,20 @@ class GameManager {
       return;
     }
 
-    // Start countdown - use room's countdown which initializes game state
     room.startCountdown();
   }
 
-  /**
-   * Handle player input during game
-   */
   handleInput(socket, data) {
     const player = this.players.get(socket.id);
-    if (!player) {
-      console.log('[GameManager] handleInput: player not found for socket', socket.id.substring(0, 8));
-      return;
-    }
+    if (!player) return;
 
     const room = this.rooms.get(player.roomCode);
-    if (!room) {
-      console.log('[GameManager] handleInput: room not found for code', player.roomCode);
-      return;
-    }
+    if (!room) return;
 
-    // Forward to GameRoom
     room.handleInput(socket.id, data);
   }
 
-  /**
-   * Handle pause request
-   */
   pauseGame(socket) {
-    // Rate limit: 1000ms cooldown (prevent pause spam)
     if (!this.checkEventRateLimit(socket.id, 'pause', 1000)) return;
 
     const player = this.players.get(socket.id);
@@ -479,11 +360,7 @@ class GameManager {
     room.pause(socket.id);
   }
 
-  /**
-   * Handle resume request
-   */
   resumeGame(socket) {
-    // Rate limit: 1000ms cooldown (prevent resume spam)
     if (!this.checkEventRateLimit(socket.id, 'resume', 1000)) return;
 
     const player = this.players.get(socket.id);
@@ -495,11 +372,7 @@ class GameManager {
     room.resume(socket.id);
   }
 
-  /**
-   * Handle player quitting the game
-   */
   quitGame(socket) {
-    // Rate limit: 1000ms cooldown (prevent quit spam)
     if (!this.checkEventRateLimit(socket.id, 'quit', 1000)) return;
 
     const player = this.players.get(socket.id);
@@ -508,22 +381,18 @@ class GameManager {
     const room = this.rooms.get(player.roomCode);
     if (!room) return;
 
-    // Notify room that player quit
     this.io.to(room.code).emit('player-quit', {
       playerId: socket.id,
       name: player.name,
     });
 
-    // Remove player from game state but keep in room for potential return
     room.removePlayer(socket.id);
 
-    // The room could have been deleted or state changed during removePlayer()
     const roomAfterRemove = this.rooms.get(player.roomCode);
     if (!roomAfterRemove) {
-      return; // Room was deleted during removePlayer
+      return;
     }
 
-    // Check if game should end (not enough players)
     if (roomAfterRemove.state === 'playing' || roomAfterRemove.state === 'paused') {
       const activePlayers = Array.from(roomAfterRemove.gamePlayers?.values() || [])
         .filter(p => p.connected).length;
@@ -534,9 +403,6 @@ class GameManager {
     }
   }
 
-  /**
-   * Return to lobby after game over
-   */
   returnToLobby(socket) {
     const player = this.players.get(socket.id);
     if (!player) return;
@@ -547,29 +413,22 @@ class GameManager {
     // Only allow return from gameover state
     if (room.state !== 'gameover') return;
 
-    // Validate room.players exists before accessing it
     if (!room.players || !(room.players instanceof Map)) {
       console.error(`[GameManager] returnToLobby: room.players is invalid for room ${room.code}`);
       return;
     }
 
-    // Reset player ready state
     player.ready = false;
 
-    // Validate returnToLobbyRequests is a Set before calling .add()
-    // Initialize it if it doesn't exist or isn't a Set
     if (!room.returnToLobbyRequests || !(room.returnToLobbyRequests instanceof Set)) {
       room.returnToLobbyRequests = new Set();
     }
 
-    // Check if all players have requested return to lobby
     room.returnToLobbyRequests.add(socket.id);
 
-    // If host requests or all remaining players request, return to lobby
     if (socket.id === room.host || room.returnToLobbyRequests.size === room.players.size) {
       room.resetToLobby();
 
-      // Reset all players' ready state
       for (const p of room.players.values()) {
         p.ready = false;
       }
@@ -578,20 +437,13 @@ class GameManager {
     }
   }
 
-  /**
-   * Handle player disconnect
-   */
   handleDisconnect(socket) {
-    // Clean up rate limit entries for this socket
     this.cleanupRateLimits(socket.id);
 
     this.roomCreationCooldown.delete(socket.id);
 
     const player = this.players.get(socket.id);
-    if (!player) {
-      console.log(`Unknown player disconnected: ${socket.id}`);
-      return;
-    }
+    if (!player) return;
 
     const room = this.rooms.get(player.roomCode);
     if (!room) {
@@ -599,9 +451,6 @@ class GameManager {
       return;
     }
 
-    console.log(`${player.name} (${socket.id}) disconnected from room ${room.code}`);
-
-    // This ensures handlePlayerDisconnect has access to player data for proper state sync
     if (room.state === 'playing' || room.state === 'paused') {
       room.handlePlayerDisconnect(socket.id);
     }
@@ -610,44 +459,34 @@ class GameManager {
       room.inputRateLimiter.remove(socket.id);
     }
 
-    // Remove player from room (after handling disconnect)
     room.players.delete(socket.id);
     this.players.delete(socket.id);
 
-    // Clean up returnToLobbyRequests
     if (room.returnToLobbyRequests) {
       room.returnToLobbyRequests.delete(socket.id);
     }
 
-    // If room is empty, delete it
     if (room.players.size === 0) {
       room.cleanup();
       this.rooms.delete(room.code);
-      console.log(`Room ${room.code} deleted (empty)`);
       return;
     }
 
-    // If host left, assign new host
     if (room.host === socket.id) {
-      // Get first remaining player as new host
       const newHost = room.players.keys().next().value;
       if (newHost) {
         room.host = newHost;
-        console.log(`New host for room ${room.code}: ${room.players.get(newHost).name}`);
       }
     }
 
-    // Notify remaining players
     if (room.state === 'lobby') {
       this.broadcastLobbyUpdate(room);
     } else {
-      // Notify about disconnect during game
       this.io.to(room.code).emit('player-quit', {
         playerId: socket.id,
         name: player.name,
       });
 
-      // Check if game should end
       const activePlayers = room.getActivePlayers ? room.getActivePlayers().length : Array.from(room.gamePlayers.values()).filter(p => p.connected).length;
       if (activePlayers < CONSTANTS.MIN_PLAYERS &&
           (room.state === 'playing' || room.state === 'paused')) {
@@ -656,9 +495,6 @@ class GameManager {
     }
   }
 
-  /**
-   * Broadcast lobby state to all players in the room
-   */
   broadcastLobbyUpdate(room) {
     const lobbyPacket = {
       code: room.code,

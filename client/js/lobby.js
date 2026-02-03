@@ -100,12 +100,7 @@ export class Lobby {
     // Update start button (host only, enabled when all ready and 1+ players for solo testing)
     const startBtn = document.getElementById('start-btn');
     if (startBtn) {
-      // For solo play: host just needs to be ready (or we skip ready check for host)
-      // For multiplayer: all non-host players must be ready
       const nonHostPlayers = lobbyData.players.filter(p => p.id !== lobbyData.host);
-      // Note: When nonHostPlayers is empty (solo host), [].every() returns true (vacuous truth).
-      // This is intentional - it allows the host to start a solo game without waiting for
-      // other players to ready up. The enoughPlayers check below ensures at least the host exists.
       const allNonHostReady = nonHostPlayers.every(p => p.ready);
       const enoughPlayers = lobbyData.players.length >= 2;
 

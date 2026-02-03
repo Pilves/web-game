@@ -12,7 +12,6 @@ export class UI {
       game: []
     };
 
-    // Cache screen elements to avoid querySelectorAll on every transition
     this._screenElements = document.querySelectorAll('.screen');
 
     this.lobby = new Lobby(game, this);
@@ -21,11 +20,9 @@ export class UI {
   }
 
   showScreen(screenName) {
-    // Cancel any pending transition and remove animation classes to prevent race conditions
     if (this.pendingTransition) {
       clearTimeout(this.pendingTransition);
       this.pendingTransition = null;
-      // Remove animation classes from all screens to cancel ongoing CSS animations
       this._screenElements.forEach(s => {
         s.classList.remove('screen-fade-out', 'screen-fade-in');
       });
@@ -83,10 +80,6 @@ export class UI {
     // Update spectating indicator
     this.updateSpectatingIndicator(isSpectating);
 
-    // Update hearts display
-    // Note: Heart symbols are rendered using Unicode characters. Spacing between hearts
-    // is controlled by CSS letter-spacing on #hearts-display (see styles.css).
-    // If hearts appear too close together, adjust letter-spacing in CSS.
     const heartsDisplay = document.getElementById('hearts-display');
     if (heartsDisplay) {
       const heartCount = Math.max(0, hearts);
@@ -94,9 +87,6 @@ export class UI {
       heartsDisplay.setAttribute('aria-label', heartCount + ' ' + (heartCount === 1 ? 'life' : 'lives') + ' remaining');
     }
 
-    // Update ammo display
-    // Note: Ammo indicator uses Unicode circles. Styling and size are controlled
-    // by CSS on #ammo-display (see styles.css).
     const ammoDisplay = document.getElementById('ammo-display');
     if (ammoDisplay) {
       ammoDisplay.textContent = hasAmmo ? '\u25CF' : '\u25CB';
@@ -305,7 +295,6 @@ export class UI {
         const name = playerNameInput?.value.trim() || (typeof PLAYER_NAMES !== 'undefined' ? PLAYER_NAMES.generateName() : 'Player');
         if (name) {
           this.clearError();
-          // Disable button to prevent spam-clicking
           createRoomBtn.disabled = true;
           createRoomBtn.classList.add('loading');
           this.game.network.createRoom(name);
@@ -326,7 +315,6 @@ export class UI {
         }
 
         this.clearError();
-        // Disable button to prevent spam-clicking
         joinRoomBtn.disabled = true;
         joinRoomBtn.classList.add('loading');
         this.game.network.joinRoom(code, name);
@@ -447,9 +435,7 @@ export class UI {
     }
   }
 
-  // Cleanup all event listeners to prevent memory leaks
   cleanup() {
-    // Clear pending timeouts and reset state flags
     if (this.pendingTransition) {
       clearTimeout(this.pendingTransition);
       this.pendingTransition = null;

@@ -1,43 +1,19 @@
 // Client-side configuration constants
 // SHARED_CONSTANTS is loaded via script tag from /shared/constants.js
 
-// Validate SHARED_CONSTANTS is loaded
 if (typeof SHARED_CONSTANTS === 'undefined') {
   console.error('[Config] SHARED_CONSTANTS is undefined. Ensure /shared/constants.js is loaded before this module.');
 }
-
-// Debug mode - enable via URL param (?debug=1) or localStorage
-const urlParams = new URLSearchParams(window.location.search);
-const DEBUG = urlParams.get('debug') === '1' || localStorage.getItem('lightsout-debug') === '1';
 
 // Get shared constants with fallbacks
 const sharedConsts = (typeof SHARED_CONSTANTS !== 'undefined' && SHARED_CONSTANTS && typeof SHARED_CONSTANTS === 'object')
   ? SHARED_CONSTANTS
   : {};
 
-/**
- * Conditional debug logger - only logs when DEBUG mode is enabled
- * @param {string} tag - Module tag e.g. '[Renderer]'
- * @param {...any} args - Arguments to log
- */
-export function debugLog(tag, ...args) {
-  if (DEBUG) console.log(tag, ...args);
-}
-
-// Log for debugging
-debugLog('[Config]', 'SHARED_CONSTANTS type:', typeof SHARED_CONSTANTS);
-debugLog('[Config]', 'SHARED_CONSTANTS value:', typeof SHARED_CONSTANTS !== 'undefined' ? SHARED_CONSTANTS : 'undefined');
-debugLog('[Config]', 'sharedConsts.PICKUP_SIZE:', sharedConsts.PICKUP_SIZE);
-
 // Build CONFIG by spreading shared constants and adding client-only ones
 export const CONFIG = {
-  // Debug flag - controls verbose logging in hot paths
-  DEBUG,
-
-  // Import all shared constants (loaded globally via script tag)
   ...sharedConsts,
 
-  // Ensure critical values have fallbacks (in case SHARED_CONSTANTS is empty)
   PICKUP_SIZE: sharedConsts.PICKUP_SIZE || 30,
   PLAYER_SIZE: sharedConsts.PLAYER_SIZE || 40,
   PROJECTILE_SIZE: sharedConsts.PROJECTILE_SIZE || 20,
@@ -48,10 +24,6 @@ export const CONFIG = {
   INPUT_SEND_RATE: 60,    // Hz - match physics tick
   INTERPOLATION_DELAY: 50, // ms - time between server updates
 };
-
-// Verify critical CONFIG values
-debugLog('[Config]', 'Final CONFIG.PICKUP_SIZE:', CONFIG.PICKUP_SIZE);
-debugLog('[Config]', 'Final CONFIG.PLAYER_SIZE:', CONFIG.PLAYER_SIZE);
 
 // Default key bindings
 export const DEFAULT_CONTROLS = {
@@ -94,7 +66,6 @@ export class ControlsManager {
         const merged = { ...DEFAULT_CONTROLS };
         for (const [action, keys] of Object.entries(parsed)) {
           if (action in DEFAULT_CONTROLS) {
-            // Validate keys is an array of strings before using
             if (Array.isArray(keys) && keys.every(k => typeof k === 'string')) {
               merged[action] = keys;
             } else {
@@ -127,19 +98,16 @@ export class ControlsManager {
   }
 
   set(action, keys) {
-    // Validate action exists
     if (!(action in DEFAULT_CONTROLS)) {
       console.warn('[Controls] Unknown action:', action);
       return;
     }
 
-    // Validate keys is an array
     if (!Array.isArray(keys)) {
       console.warn('[Controls] Keys must be an array');
       return;
     }
 
-    // Validate each key is a string
     if (!keys.every(k => typeof k === 'string')) {
       console.warn('[Controls] All keys must be strings');
       return;
@@ -154,13 +122,11 @@ export class ControlsManager {
     this.save();
   }
 
-  // Check if a key code matches an action
   isAction(action, keyCode) {
     const keys = this.controls[action] || [];
     return keys.includes(keyCode);
   }
 
-  // Get display name for a key code
   static getKeyDisplayName(code) {
     const names = {
       'KeyA': 'A', 'KeyB': 'B', 'KeyC': 'C', 'KeyD': 'D', 'KeyE': 'E',

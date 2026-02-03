@@ -2,14 +2,6 @@
 import { audio } from './audio.js';
 import { effects } from './effects.js';
 
-/**
- * Find player data in server state by ID
- * Uses O(1) Map lookup if playerMap provided, otherwise O(n) array search
- * @param {Object} state - Server state with .p array
- * @param {string} playerId - Player ID to find
- * @param {Map|null} playerMap - Optional pre-built Map for O(1) lookups
- * @returns {Object|null} Player data object or null
- */
 function findPlayerInState(state, playerId, playerMap = null) {
   if (!state || !state.p) return null;
 
@@ -33,14 +25,6 @@ function findPlayerInState(state, playerId, playerMap = null) {
   };
 }
 
-/**
- * Handle a game event from the server
- * @param {Array} event - Event array [type, ...data]
- * @param {Object} state - Current server state
- * @param {string} myId - Local player's socket ID
- * @param {Object} localPlayer - Local player position {x, y}
- * @param {Map|null} playerMap - Optional pre-built Map for O(1) lookups
- */
 export function handleEvent(event, state, myId, localPlayer, playerMap = null) {
   const [type, ...data] = event;
 
@@ -142,5 +126,4 @@ export function handleEvent(event, state, myId, localPlayer, playerMap = null) {
   }
 }
 
-// Re-export findPlayerInState for use by other modules
 export { findPlayerInState };

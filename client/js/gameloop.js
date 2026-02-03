@@ -1,5 +1,4 @@
-// Game loop - runs requestAnimationFrame, tracks FPS, orchestrates per-frame input/predict/render
-import { CONFIG } from './config.js';
+// Game loop - requestAnimationFrame, FPS tracking, input throttling
 
 export class GameLoop {
   constructor() {
@@ -18,22 +17,12 @@ export class GameLoop {
     this.fpsLastUpdate = 0;
     this.fpsUpdateInterval = 250;
 
-    // Debug frame counter
-    this._debugFrameCount = 0;
-
     // Bound tick for rAF
     this._boundTick = null;
   }
 
-  /**
-   * Start the game loop
-   * @param {Function} tickCallback - Called each frame with (cappedDt, timestamp)
-   */
   start(tickCallback) {
-    if (this.running) {
-      console.log('[GameLoop] Already running');
-      return;
-    }
+    if (this.running) return;
     this.running = true;
     this.lastFrameTime = 0;
     this._boundTick = (timestamp) => {
@@ -60,21 +49,14 @@ export class GameLoop {
         this.fpsLastUpdate = timestamp;
       }
 
-      // Debug logging
-      this._debugFrameCount++;
-
       tickCallback(cappedDt, timestamp);
 
       this.animationFrameId = requestAnimationFrame(this._boundTick);
     };
 
-    console.log('[GameLoop] Starting');
     this.animationFrameId = requestAnimationFrame(this._boundTick);
   }
 
-  /**
-   * Stop the game loop
-   */
   stop() {
     this.running = false;
     if (this.animationFrameId) {
@@ -83,10 +65,6 @@ export class GameLoop {
     }
   }
 
-  /**
-   * Check if it's time to send input (and record the send time if so)
-   * @returns {boolean}
-   */
   shouldSendInput() {
     const now = performance.now();
     if (now - this.lastInputSendTime >= this.inputSendInterval) {
@@ -95,24 +73,10 @@ export class GameLoop {
     return false;
   }
 
-  /**
-   * Record that input was just sent
-   */
   markInputSent() {
     this.lastInputSendTime = performance.now();
   }
 
-  /**
-   * Check if we should log debug info this frame
-   * @returns {boolean}
-   */
-  shouldDebugLog() {
-    return this._debugFrameCount % 60 === 0;
-  }
-
-  /**
-   * Update FPS display DOM element
-   */
   updateFpsDisplay() {
     const fpsDisplay = document.getElementById('fps-display');
     if (!fpsDisplay) return;

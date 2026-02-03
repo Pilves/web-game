@@ -1,14 +1,7 @@
 // Server constants - imports shared and adds server-only constants
 const SHARED = require('../shared/constants');
 
-// Debug mode - set DEBUG=1 environment variable to enable verbose logging
-const DEBUG = process.env.DEBUG === '1' || process.env.DEBUG === 'true';
-
 const CONSTANTS = {
-  // Debug flag - controls verbose logging in hot paths
-  DEBUG,
-
-  // Import all shared constants
   ...SHARED,
 
   // Server-only: Tick rates
@@ -28,7 +21,6 @@ const CONSTANTS = {
   KNOCKBACK_DISTANCE: 30,       // px
 
   // Server-only: Vision
-  // Note: FLASHLIGHT_FLICKER_THRESHOLD is now in shared/constants.js (used by both server and client)
   MUZZLE_FLASH_DURATION: 100,   // ms
 
   // Server-only: Pillow spawning
@@ -46,14 +38,7 @@ const CONSTANTS = {
 
   // Server-only: Rate limiting
   // INPUT_RATE_LIMIT is intentionally server-only - clients don't need to know the limit.
-  // The server enforces this to prevent DoS attacks; clients just send at their configured rate.
   INPUT_RATE_LIMIT: 120,          // Max input packets per second per player
 };
 
-// Debug logging helper
-function debugLog(tag, ...args) {
-  if (DEBUG) console.log(tag, ...args);
-}
-
 module.exports = CONSTANTS;
-module.exports.debugLog = debugLog;

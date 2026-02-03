@@ -15,7 +15,6 @@ export function setupControlsMenu() {
 
   if (!modal || !openBtn) return;
 
-  // Prevent duplicate setup
   if (_controlsMenuSetup) return;
   _controlsMenuSetup = true;
 
@@ -101,7 +100,6 @@ export function setupControlsMenu() {
       return;
     }
 
-    // Set the new key
     const currentKeys = [...controls.get(modalState.listeningAction)];
     if (modalState.listeningIndex < currentKeys.length) {
       currentKeys[modalState.listeningIndex] = e.code;
@@ -123,7 +121,6 @@ export function setupControlsMenu() {
 
     const mouseCode = `Mouse${e.button}`;
 
-    // Set the new key
     const currentKeys = [...controls.get(modalState.listeningAction)];
     if (modalState.listeningIndex < currentKeys.length) {
       currentKeys[modalState.listeningIndex] = mouseCode;
@@ -224,7 +221,6 @@ export function setupHowToPlayModal() {
 
   if (!modal || !openBtn) return;
 
-  // Prevent duplicate setup
   if (_howToPlayModalSetup) return;
   _howToPlayModalSetup = true;
 

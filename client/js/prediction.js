@@ -1,21 +1,12 @@
 // Client-side player movement prediction, obstacle collision, and server reconciliation
 import { CONFIG } from './config.js';
 
-/**
- * Predict local player movement based on input
- * @param {Object} localPlayer - Local player state {x, y, vx, vy, facing, stunned}
- * @param {Object} input - Input state {up, down, left, right, sprint, facing}
- * @param {number} dt - Delta time in seconds
- * @param {number} arenaInset - Arena inset for sudden death
- */
 export function predictLocalPlayer(localPlayer, input, dt, arenaInset) {
   if (!localPlayer) return;
 
-  // Initialize velocity if not present
   if (localPlayer.vx === undefined) localPlayer.vx = 0;
   if (localPlayer.vy === undefined) localPlayer.vy = 0;
 
-  // Handle stunned state - apply friction but don't allow new input
   if (localPlayer.stunned) {
     const PLAYER_FRICTION = 0.85;
     localPlayer.vx *= PLAYER_FRICTION;
@@ -30,10 +21,8 @@ export function predictLocalPlayer(localPlayer, input, dt, arenaInset) {
     return;
   }
 
-  // Calculate speed based on sprint
   const speed = input.sprint ? CONFIG.PLAYER_SPRINT_SPEED : CONFIG.PLAYER_SPEED;
 
-  // Calculate velocity from input
   let vx = 0;
   let vy = 0;
 
@@ -42,40 +31,29 @@ export function predictLocalPlayer(localPlayer, input, dt, arenaInset) {
   if (input.left) vx -= 1;
   if (input.right) vx += 1;
 
-  // Normalize diagonal movement
   const length = Math.hypot(vx, vy);
   if (length > 0) {
     vx = (vx / length) * speed;
     vy = (vy / length) * speed;
   }
 
-  // Store velocity for stun friction continuity
   localPlayer.vx = vx;
   localPlayer.vy = vy;
 
-  // Apply velocity
   localPlayer.x += vx * dt;
   localPlayer.y += vy * dt;
 
-  // Update facing direction
   localPlayer.facing = input.facing;
 
-  // Handle boundary and collision
   applyBoundaryAndCollision(localPlayer, arenaInset);
 }
 
-/**
- * Apply boundary wrapping/clamping and obstacle collision
- * @param {Object} localPlayer - Local player state {x, y, vx, vy}
- * @param {number} arenaInset - Arena inset for sudden death
- */
 export function applyBoundaryAndCollision(localPlayer, arenaInset) {
   const halfSize = CONFIG.PLAYER_SIZE / 2;
   const arenaWidth = CONFIG.ARENA_WIDTH;
   const arenaHeight = CONFIG.ARENA_HEIGHT;
 
   if (arenaInset > 0) {
-    // During sudden death, clamp to shrinking arena bounds
     const minX = arenaInset + halfSize;
     const maxX = arenaWidth - arenaInset - halfSize;
     const minY = arenaInset + halfSize;
@@ -86,7 +64,6 @@ export function applyBoundaryAndCollision(localPlayer, arenaInset) {
     if (localPlayer.y < minY) { localPlayer.y = minY; localPlayer.vy = 0; }
     if (localPlayer.y > maxY) { localPlayer.y = maxY; localPlayer.vy = 0; }
   } else {
-    // Normal mode: wrap around arena bounds
     if (localPlayer.x < -halfSize) {
       localPlayer.x += arenaWidth;
     } else if (localPlayer.x > arenaWidth + halfSize) {
@@ -100,17 +77,11 @@ export function applyBoundaryAndCollision(localPlayer, arenaInset) {
     }
   }
 
-  // Simple obstacle collision
   for (const obstacle of CONFIG.OBSTACLES) {
     resolveCollision(localPlayer, obstacle);
   }
 }
 
-/**
- * Simple AABB collision resolution
- * @param {Object} player - Player {x, y}
- * @param {Object} obstacle - Obstacle {x, y, width, height}
- */
 export function resolveCollision(player, obstacle) {
   const halfSize = CONFIG.PLAYER_SIZE / 2;
   const playerRect = {
@@ -156,22 +127,13 @@ export function resolveCollision(player, obstacle) {
   }
 }
 
-/**
- * Reconcile local player position with server state
- * @param {Object} localPlayer - Local player state (mutated in place)
- * @param {Object} serverPlayer - Server player data {x, y, stunned, ...}
- * @returns {boolean} true if localPlayer was initialized (first call)
- */
 export function reconcileWithServer(localPlayer, serverPlayer) {
   if (!serverPlayer) return false;
 
-  // Initialize local player if needed
   if (!localPlayer) return false;
 
-  // Update stunned state from server
   localPlayer.stunned = serverPlayer.stunned;
 
-  // Calculate difference between predicted and server position
   const dx = serverPlayer.x - localPlayer.x;
   const dy = serverPlayer.y - localPlayer.y;
   const distance = Math.hypot(dx, dy);
@@ -188,11 +150,6 @@ export function reconcileWithServer(localPlayer, serverPlayer) {
   }
 }
 
-/**
- * Initialize a local player from server data
- * @param {Object} serverPlayer - Server player data {x, y, facing, stunned, ...}
- * @returns {Object} New local player object
- */
 export function initLocalPlayer(serverPlayer) {
   return {
     x: serverPlayer.x,

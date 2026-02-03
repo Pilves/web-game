@@ -46,8 +46,6 @@ export function onKicked(game) {
 }
 
 export function onCountdown(game, count) {
-  console.log('[Lifecycle] onCountdown:', count);
-
   if (game.state !== 'countdown' && !game.transitionState('countdown')) {
     console.warn('[Lifecycle] Cannot start countdown from current state:', game.state);
     return;
@@ -66,8 +64,6 @@ export function onCountdown(game, count) {
 }
 
 export function onGameStart(game, data) {
-  console.log('[Lifecycle] onGameStart called');
-
   if (!game.transitionState('playing')) {
     console.warn('[Lifecycle] Cannot start game from current state:', game.state);
     return;
@@ -107,12 +103,9 @@ export function onGameStart(game, data) {
 
   audio.play('start');
   game.input.reset();
-  console.log('[Lifecycle] Game started. localPlayer:', game.localPlayer);
 }
 
 export function onCountdownCancelled(game, reason) {
-  console.log('[Lifecycle] Countdown cancelled:', reason);
-
   if (!game.transitionState('lobby')) {
     game.state = 'lobby';
   }
@@ -264,8 +257,6 @@ export function onReturnToLobby(game) {
 }
 
 export function onDisconnect(game) {
-  console.log('[Lifecycle] onDisconnect called, current state:', game.state);
-
   game.stopGameLoop();
 
   if (game.input) {
@@ -300,12 +291,9 @@ export function onDisconnect(game) {
 }
 
 export function onReconnect(game) {
-  console.log('[Lifecycle] onReconnect called, current state:', game.state);
-
   const canRestore = game.validateReconnectState();
 
   if (!canRestore) {
-    console.log('[Lifecycle] Cannot restore previous state, staying in menu');
     game.roomCode = null;
     game.lobbyData = null;
     game.isHost = false;
@@ -313,5 +301,4 @@ export function onReconnect(game) {
   }
 
   game.startGameLoop();
-  console.log('[Lifecycle] Reconnect complete, waiting for server state');
 }

@@ -23,15 +23,15 @@
     // Vision
     FLASHLIGHT_RANGE: 200,        // px
     FLASHLIGHT_ANGLE: 60,         // degrees
-    FLASHLIGHT_FLICKER_THRESHOLD: 10000, // ms - when flashlight starts flickering (used by both server and client)
+    FLASHLIGHT_FLICKER_THRESHOLD: 1000, // ms - when flashlight starts flickering (used by both server and client)
 
     // Game
     DEFAULT_LIVES: 3,
-    MAX_LIVES: 5,
+    MAX_LIVES: 7,
     DEFAULT_TIME_LIMIT: 180,      // seconds
     MIN_TIME_LIMIT: 60,
     MAX_TIME_LIMIT: 300,
-    MIN_PLAYERS: 2,               // Minimum 2 players required to start
+    MIN_PLAYERS: 2,
     MAX_PLAYERS: 4,
 
     // Colors for players
@@ -42,7 +42,7 @@
       '#c3aed6',  // Lavender - P4
     ],
 
-    // Spawn points - positioned between beds and center (not inside beds!)
+    // Spawn points
     SPAWN_POINTS: [
       { x: 250, y: 250 },   // P1 - top left quadrant
       { x: 950, y: 250 },   // P2 - top right quadrant
@@ -58,9 +58,6 @@
       { x: 900, y: 600 },
     ],
 
-    // Obstacles (beds and table) - must match CSS positions!
-    // CSS: beds are 120x80, positioned 80px from edges
-    // CSS: table is 100x100, centered at 50% 50%
     OBSTACLES: [
       { x: 80, y: 80, width: 120, height: 80, type: 'bed' },       // Top-left bed
       { x: 1000, y: 80, width: 120, height: 80, type: 'bed' },     // Top-right bed (1200-80-120)

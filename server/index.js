@@ -6,15 +6,8 @@ const GameManager = require('./GameManager');
 
 const app = express();
 
-// Enable Gzip compression for all responses (reduces bandwidth by 60-70%)
 app.use(compression());
 const server = http.createServer(app);
-// Parse CORS origins from environment variable
-// Supports single origin or comma-separated list of origins
-// Examples:
-//   CORS_ORIGIN=https://yourgame.com
-//   CORS_ORIGIN=https://yourgame.com,https://www.yourgame.com
-//   CORS_ORIGIN=* (allows all origins - NOT recommended for production)
 function parseCorsOrigins() {
   const envOrigin = process.env.CORS_ORIGIN;
   if (!envOrigin) {
@@ -34,26 +27,16 @@ const io = new Server(server, {
   },
 });
 
-// Serve static files from client folder
 app.use(express.static('client'));
-
-// Serve shared folder for constants and utilities used by both client and server
 app.use('/shared', express.static('shared'));
 
-// Initialize game manager
 const gameManager = new GameManager(io);
 
-// Periodic cleanup of stale rate limit entries (every 5 minutes)
 setInterval(() => {
   gameManager.cleanupStaleRateLimits();
 }, 5 * 60 * 1000);
 
-// Socket connection handling
 io.on('connection', (socket) => {
-  console.log(`Player connected: ${socket.id}`);
-
-  // Note: 'join-error' is used for room creation/joining errors (handled by lobby UI)
-  // 'error' is used for all other game-related errors
   socket.on('create-room', (data) => {
     try {
       gameManager.createRoom(socket, data);
@@ -104,7 +87,6 @@ io.on('connection', (socket) => {
       gameManager.startGame(socket);
     } catch (e) {
       console.error('Error in start-game:', e);
-      // Use 'error' for game-related errors (not join-related)
       socket.emit('error', { message: 'Failed to start game' });
     }
   });
