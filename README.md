@@ -1,83 +1,231 @@
 # LIGHTS OUT
 
-A multiplayer top-down stealth-action brawler where players fight in darkness with pillows and flashlights. In the dark, everyone's a target.
+*In the dark, everyone's a target.*
 
-## Features
+A real-time multiplayer stealth-action brawler where 2-4 players battle in a pitch-black arena armed with pillows and flashlights. Navigate through darkness, use sound and light to track your enemies, and be the last one standing.
 
-- **2-4 Players** - Real-time multiplayer pillow fights with room-based matchmaking
-- **Darkness Mechanics** - Navigate in near-total darkness; flashlights reveal enemies but also reveal you
-- **Spatial Audio** - Hear footsteps, throws, and impacts to locate hidden enemies
-- **60 FPS Performance** - Pure DOM rendering with no canvas, optimized for smooth gameplay
+Built entirely with DOM elements -- no HTML canvas used.
+
+## Table of Contents
+
+- [Project Overview](#project-overview)
+- [Requirements](#requirements)
+- [Setup and Installation](#setup-and-installation)
+- [Running the Game](#running-the-game)
+- [Usage Guide](#usage-guide)
+- [Game Mechanics](#game-mechanics)
+- [Bonus Features](#bonus-features)
+- [Project Structure](#project-structure)
+
+## Project Overview
+
+Lights Out is a top-down arena brawler designed for 2-4 simultaneous players. Each player joins from their own computer via a web browser, enters a shared room using a 4-letter code, and competes in real-time pillow combat in a dark arena.
+
+The game uses a client-server architecture with Socket.io for real-time communication. The server handles all authoritative game logic (physics, combat, collision detection), while the client handles rendering, input, audio, and visual effects using pure DOM manipulation.
+
+### Tech Stack
+
+- **Server:** Node.js, Express, Socket.io
+- **Client:** Vanilla JavaScript (ES6 modules), HTML, CSS
+- **Rendering:** DOM elements only (no canvas)
+- **Audio:** Web Audio API with generated sound fallbacks
+- **Deployment:** Docker support included
 
 ## Requirements
 
-- Node.js 20+ LTS
-- Modern browser with WebSocket support (Chrome, Firefox, Safari, Edge)
+- Node.js 20+
+- A modern browser with WebSocket support (Chrome, Firefox, Safari, Edge)
 
-## Installation
+## Setup and Installation
 
 ```bash
-git clone <repo>
+git clone <repository-url>
 cd web-game
 npm install
 ```
 
+### Docker (alternative)
+
+```bash
+docker-compose up -d
+```
+
+The Docker setup exposes the game on port 3200.
+
 ## Running the Game
+
+### Development
+
+```bash
+npm run dev
+```
+
+This starts the server with `--watch` mode for automatic restarts on file changes.
+
+### Production
 
 ```bash
 npm start
 ```
 
-Then open http://localhost:3000
+The server starts on `http://localhost:3000` by default.
 
-For multiplayer testing over the internet:
+### Environment Variables
+
+| Variable      | Default                | Description                                     |
+|---------------|------------------------|-------------------------------------------------|
+| `PORT`        | `3000`                 | Server port                                     |
+| `CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origins (comma-separated for multiple) |
+
+### Exposing to the Internet
+
+For players on different networks to connect, expose the server using a tunneling tool:
+
 ```bash
 ngrok http 3000
 ```
 
-## How to Play
+Share the generated URL with other players.
+
+## Usage Guide
+
+### Joining a Game
+
+1. Open the game URL in your browser
+2. Enter a player name (max 12 characters, must be unique in the room)
+3. Either:
+   - **Create a room** to get a 4-letter room code
+   - **Join a room** by entering an existing code
+4. Share the room code with other players
+5. In the lobby, click **Ready** when prepared to play
+6. The host (room creator) starts the game once 2+ players are present
 
 ### Controls
 
-| Action | Primary | Alternative |
-|--------|---------|-------------|
-| Move | WASD | Arrow Keys |
-| Sprint | Hold Shift | - |
-| Throw Pillow | Space | Left Click |
-| Toggle Flashlight | F | Right Click |
-| Pause Menu | Escape | - |
+| Action            | Primary Key | Alternative   |
+|-------------------|-------------|---------------|
+| Move              | WASD        | Arrow Keys    |
+| Sprint            | Hold Shift  | --            |
+| Throw Pillow      | Space       | --            |
+| Toggle Flashlight | F           | --            |
+| Pause Menu        | Escape      | --            |
 
-### Getting Started
+Controls can be rebound in the settings menu. Custom bindings are saved to localStorage.
 
-1. Create a room to get a 4-letter code, or join an existing room with a code
-2. All players mark ready, then host starts the game
-3. Be the last player standing - or have the most hearts when the timer ends
+### Lobby Settings (Host Only)
+
+- **Lives per player:** 1-5 (default 3)
+- **Time limit:** 60-300 seconds in 30-second increments (default 180s)
+
+### In-Game Menu
+
+Press Escape during gameplay to access the pause menu:
+- **Resume** - Continue the game
+- **Quit** - Return to the lobby
+
+When a player pauses, resumes, or quits, all players are notified with a message.
+
+## Game Mechanics
 
 ### Objective
 
-Each player starts with 3 hearts. Hit opponents with pillows to eliminate them. Last player with hearts wins.
+Each player starts with a set number of hearts (lives). Hit opponents with pillows to remove their hearts. The last player with hearts remaining wins.
 
-### Tips
+If the timer runs out, **sudden death** begins: the arena shrinks every 5 seconds, forcing players closer together.
 
-- Your flashlight reveals enemies but also reveals your position
-- Sprinting is loud and creates visible sound ripples
-- Pillows are more accurate when your flashlight is on
-- Pick up pillows from the ground to rearm (max 1 at a time)
+### Darkness and Vision
 
-## Configuration
+- The arena is pitch-black by default -- players cannot see each other
+- Toggle your **flashlight** (F key) to reveal enemies in a cone (200px range, 60-degree angle)
+- Your flashlight also reveals your own position to others
+- Line-of-sight is blocked by obstacles (beds, table)
 
-Environment variables:
+### Combat
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| PORT | 3000 | Server port |
-| CORS_ORIGIN | * | Allowed CORS origins |
+- Throw pillows at opponents to deal damage
+- Pillows are **more accurate** with your flashlight on (tighter spread)
+- Hits apply **knockback** and a brief **stun** (300ms)
+- Players receive brief **invincibility** after being hit (1500ms)
+- Throw cooldown: 500ms between throws
+- Pick up pillow pickups from the arena floor to rearm
 
-## Documentation
+### Movement
 
-- **DESIGN.md** - Game mechanics, rules, balance values
-- **TECHNICAL.md** - Architecture, data structures, code patterns
+- Standard movement speed: 180 px/sec
+- Sprint speed: 280 px/sec (louder, creates visible sound ripples)
+- Collision detection with arena obstacles (beds in corners, center table)
 
-## License
+### Scoring
 
-MIT
+- Real-time hearts display for all players visible in the HUD scoreboard
+- The winner is announced at game end with a final results screen
+- After the game ends, players automatically return to the lobby after 30 seconds, or can click **Play Again**
+
+### Timer
+
+A countdown timer is displayed during gameplay in MM:SS format. A warning sound plays at 30 seconds remaining.
+
+## Bonus Features
+
+### Spatial Audio
+Full sound design using the Web Audio API with positional audio. Sounds include footsteps (light and heavy), pillow throws, wall/player impacts, pickup collection, flashlight toggles, death, countdown, victory, and a 30-second warning. If audio files fail to load, procedurally generated sounds are used as fallbacks.
+
+### Customizable Controls
+Players can rebind all keyboard controls through the in-game settings modal. Bindings persist via localStorage.
+
+### Visual Effects
+- Sound ripple visualizations when players sprint
+- Impact flash effects on hits
+- Muzzle flash on pillow throws (brief arena brightening)
+- Smooth screen transitions with fade animations
+
+### How-to-Play Guide
+An in-game help modal with detailed instructions, icons, and gameplay tips.
+
+### Performance Optimizations
+- Object pooling for projectiles, ripples, and flash effects to minimize garbage collection
+- Reusable collision detection objects
+- DOM element caching and minimized reflows
+- Gzip compression on network traffic (60-70% bandwidth reduction)
+- Server-authoritative physics at 60 Hz tick rate with 20 Hz state broadcasts
+
+### Rate Limiting
+Multiple layers of protection against abuse: input rate limiting (120 packets/sec per player), room creation cooldowns, and per-event-type throttling.
+
+### Accessibility
+- ARIA labels and live regions for screen reader support
+- Semantic HTML structure
+- Keyboard-only navigation support
+
+## Project Structure
+
+```
+web-game/
+├── client/
+│   ├── js/
+│   │   ├── main.js        # Game orchestrator
+│   │   ├── network.js     # Socket.io client
+│   │   ├── renderer.js    # DOM rendering with object pools
+│   │   ├── ui.js          # Screen and UI management
+│   │   ├── input.js       # Keyboard input handling
+│   │   ├── config.js      # Client configuration
+│   │   ├── audio.js       # Web Audio API and spatial audio
+│   │   ├── effects.js     # Visual effects (ripples, flashes)
+│   │   └── vision.js      # Flashlight and visibility
+│   ├── css/               # Modular stylesheets
+│   ├── assets/            # Sounds and sprites
+│   └── index.html         # Single-page app
+├── server/
+│   ├── index.js           # Express and Socket.io setup
+│   ├── GameManager.js     # Room and player management
+│   ├── GameRoom.js        # Game instance logic
+│   ├── Combat.js          # Projectile and hit detection
+│   ├── Physics.js         # Movement and collisions
+│   └── constants.js       # Server constants
+├── shared/
+│   ├── constants.js       # Shared game constants
+│   └── geometry.js        # Collision and line-of-sight math
+├── package.json
+├── Dockerfile
+└── docker-compose.yml
+```

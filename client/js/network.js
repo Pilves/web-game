@@ -291,8 +291,17 @@ export class Network {
       this.game.onSuddenDeath();
     };
     this.socket.on('sudden-death', this.handlers['sudden-death']);
+    //Auto return
+    this.handlers['auto-return-lobby'] = () => {
+      console.log('Auto-returnig to lobby');
+      if (this.game.autoReturnInterval) {
+        clearInterval(this.game.autoReturnInterval);
+        this.game.autoReturnInterval = null;
+      }
+      this.game.onReturnToLobby();
+    };
+    this.socket.on('auto-return-lobby', this.handlers['auto-return-lobby']);
 
-    // Mark handlers as set up (HIGH-1 fix)
     this.handlersSetup = true;
   }
 

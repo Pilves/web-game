@@ -639,6 +639,10 @@ export class UI {
 
     if (playAgainBtn) {
       const playAgainHandler = () => {
+        if (this.game.autoReturnInterval) {
+          clearInterval(this.game.autoReturnInterval);
+          this.game.autoReturnInterval = null;
+        }
         this.game.network.returnToLobby();
         this.game.localPlayer = null;
         this.game.serverState = null;

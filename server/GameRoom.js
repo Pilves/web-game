@@ -12,6 +12,11 @@
 const CONSTANTS = require('./constants');
 const Physics = require('./Physics');
 const Combat = require('./Combat');
+const RateLimiter = require('./RateLimiter');
+const PickupManager = require('./PickupManager');
+const StateBroadcaster = require('./StateBroadcaster');
+const InputHandler = require('./InputHandler');
+const GameTimer = require('./GameTimer');
 
 // Footstep sound interval when sprinting (ms)
 const FOOTSTEP_INTERVAL = 300;
@@ -50,14 +55,12 @@ class GameRoom {
     // Game state (only populated when game is active)
     this.gamePlayers = new Map(); // socketId -> game player object
     this.projectiles = [];
-    this.pickups = [];
+    this.pickupManager = new PickupManager(code);
     this.events = [];
 
-    // Timers
-    this.timeRemaining = this.settings.timeLimit;
-    this.arenaInset = 0;
-    this.suddenDeath = false;
-    this.lastShrinkTime = 0;
+    // Game timer (clock, sudden death, arena shrinking)
+    this.gameTimer = new GameTimer(io, code);
+    this.gameTimer.reset(this.settings);
 
     // Muzzle flash state
     this.muzzleFlashActive = false;
@@ -72,8 +75,11 @@ class GameRoom {
     this.nextProjectileId = 1;
     this.MAX_PROJECTILE_ID = Number.MAX_SAFE_INTEGER;
 
-    // Pickup ID counter
-    this.nextPickupId = 1;
+    // State broadcaster for network serialization
+    this.broadcaster = new StateBroadcaster(io, code);
+
+    // Input handler for player input processing
+    this.inputHandler = new InputHandler(code);
 
     // Pause state
     this.pausedBy = null;
@@ -81,15 +87,20 @@ class GameRoom {
     // Return to lobby requests
     this.returnToLobbyRequests = new Set();
 
-    // State sequence number for network synchronization
-    this.stateSequence = 0;
-
     // Cached object representation of gamePlayers (updated when players change)
     this.gamePlayersObject = {};
 
-    // Rate limiting: Track input counts per player using time window counter
-    this.inputRateTracking = new Map(); // playerId -> { count: number, windowStart: timestamp, lastWarning: timestamp }
+    // Rate limiting for input flooding
+    this.inputRateLimiter = new RateLimiter();
   }
+
+  // --- Property delegation to GameTimer ---
+  get timeRemaining() { return this.gameTimer.timeRemaining; }
+  set timeRemaining(v) { this.gameTimer.timeRemaining = v; }
+  get arenaInset() { return this.gameTimer.arenaInset; }
+  set arenaInset(v) { this.gameTimer.arenaInset = v; }
+  get suddenDeath() { return this.gameTimer.suddenDeath; }
+  set suddenDeath(v) { this.gameTimer.suddenDeath = v; }
 
   /**
    * Sync the gamePlayersObject cache with the gamePlayers Map
@@ -104,96 +115,19 @@ class GameRoom {
 
   /**
    * Check if input rate is within limits (prevents flooding)
-   * Uses a simple counter with time window instead of filtering arrays
    * @param {string} playerId - Player socket ID
    * @returns {boolean} true if input should be processed, false if rate limited
    */
   checkInputRateLimit(playerId) {
-    const now = Date.now();
-    const windowMs = 1000; // 1 second window
-    const maxPackets = CONSTANTS.INPUT_RATE_LIMIT;
-
-    let tracking = this.inputRateTracking.get(playerId);
-    if (!tracking) {
-      tracking = { count: 0, windowStart: now, lastWarning: 0 };
-      this.inputRateTracking.set(playerId, tracking);
-    }
-
-    // Check if we need to reset the window
-    if (now - tracking.windowStart >= windowMs) {
-      // Start a new window
-      tracking.windowStart = now;
-      tracking.count = 1;  // Reset to 1 since we're about to process this packet
-      // Skip the increment below since we've already counted this packet
-      // Check if over limit (will always pass on window reset since count is 1)
-      return tracking.count <= maxPackets;
-    }
-
-    // Increment counter
-    tracking.count++;
-
-    // Check if over limit
-    if (tracking.count > maxPackets) {
-      // Log warning at most once per second
-      if (now - tracking.lastWarning > 1000) {
-        console.log(`[GameRoom ${this.code}] Rate limiting player ${playerId.substring(0, 8)}: ${tracking.count} packets/sec`);
-        tracking.lastWarning = now;
-      }
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Generate a random spawn position that doesn't overlap with obstacles
-   * @param {number} padding - Extra padding around obstacles (default 30)
-   * @returns {Object} {x, y} coordinates
-   */
-  getRandomSpawnPosition(padding = 30) {
-    const pickupSize = CONSTANTS.PICKUP_SIZE;
-    const margin = 50; // Stay away from arena edges
-    const inset = this.arenaInset || 0; // Account for arena shrinking
-    const edgeOffset = Math.max(margin, inset + 20); // Stay inside shrunk arena with buffer
-
-    const minX = edgeOffset + pickupSize / 2;
-    const maxX = CONSTANTS.ARENA_WIDTH - edgeOffset - pickupSize / 2;
-    const minY = edgeOffset + pickupSize / 2;
-    const maxY = CONSTANTS.ARENA_HEIGHT - edgeOffset - pickupSize / 2;
-
-    // If arena has shrunk too much, just return center
-    if (minX >= maxX || minY >= maxY) {
-      return { x: CONSTANTS.ARENA_WIDTH / 2, y: CONSTANTS.ARENA_HEIGHT / 2 };
-    }
-
-    // Try to find a valid position (max 100 attempts)
-    for (let attempt = 0; attempt < 100; attempt++) {
-      const x = minX + Math.random() * (maxX - minX);
-      const y = minY + Math.random() * (maxY - minY);
-
-      // Check if position overlaps with any obstacle (with padding)
-      const pickupRect = {
-        x: x - pickupSize / 2 - padding,
-        y: y - pickupSize / 2 - padding,
-        width: pickupSize + padding * 2,
-        height: pickupSize + padding * 2,
-      };
-
-      let overlaps = false;
-      for (const obstacle of CONSTANTS.OBSTACLES) {
-        if (Physics.rectsCollide(pickupRect, obstacle)) {
-          overlaps = true;
-          break;
-        }
-      }
-
-      if (!overlaps) {
-        return { x, y };
+    const allowed = this.inputRateLimiter.checkWindowLimit(playerId, 1000, CONSTANTS.INPUT_RATE_LIMIT);
+    if (!allowed) {
+      const now = Date.now();
+      if (now - this.inputRateLimiter.getLastWarning(playerId) > 1000) {
+        console.log(`[GameRoom ${this.code}] Rate limiting player ${playerId.substring(0, 8)}: ${this.inputRateLimiter.getWindowCount(playerId)} packets/sec`);
+        this.inputRateLimiter.setLastWarning(playerId, now);
       }
     }
-
-    // Fallback: return center of arena if no valid position found
-    return { x: CONSTANTS.ARENA_WIDTH / 2, y: CONSTANTS.ARENA_HEIGHT / 2 };
+    return allowed;
   }
 
   /**
@@ -301,27 +235,12 @@ class GameRoom {
     this.syncGamePlayersObject();
 
     // Initialize pickups at random positions (avoiding obstacles)
-    this.pickups = [];
-    for (let i = 0; i < CONSTANTS.PILLOWS_ON_MAP; i++) {
-      const spawn = this.getRandomSpawnPosition();
-      console.log(`[GameRoom ${this.code}] Pickup ${i + 1} spawning at:`, spawn);
-      this.pickups.push({
-        id: this.nextPickupId++,
-        x: spawn.x,
-        y: spawn.y,
-        active: true,
-        respawnAt: 0,
-      });
-    }
-    console.log(`[GameRoom ${this.code}] Pickups spawned:`, this.pickups.map(p => `(${Math.round(p.x)}, ${Math.round(p.y)})`).join(', '));
+    this.pickupManager.initialize(this.arenaInset);
 
     // Reset game state
     this.projectiles = [];
     this.events = [];
-    this.timeRemaining = this.settings.timeLimit;
-    this.arenaInset = 0;
-    this.suddenDeath = false;
-    this.lastShrinkTime = 0;
+    this.gameTimer.reset(this.settings);
     this.muzzleFlashActive = false;
     this.muzzleFlashUntil = 0;
   }
@@ -379,12 +298,10 @@ class GameRoom {
     this.gamePlayers.clear();
     this.gamePlayersObject = {};
     this.projectiles = [];
-    this.pickups = [];
+    this.pickupManager.reset();
     this.events = [];
     // Reset debug sets to avoid stale state on next game start
-    this._inputWarned = new Set();
-    this._inputReceived = new Set();
-    this._broadcastCount = 0;
+    this.inputHandler.reset();
     this.io.to(this.code).emit('countdown-cancelled', { reason });
   }
 
@@ -499,7 +416,7 @@ class GameRoom {
     }
 
     // 4. Check pickup collisions
-    this.checkPickupCollisions(players);
+    this.pickupManager.checkCollisions(players, this.events);
 
     // 5. Check footstep sounds
     this.checkFootstepSounds(now, players);
@@ -513,60 +430,12 @@ class GameRoom {
     }
 
     // 8. Respawn pickups
-    this.respawnPickups(now);
+    this.pickupManager.respawn(now, this.arenaInset);
 
     // 9. Check win condition
     this.checkWinCondition();
   }
 
-  /**
-   * Check if players pick up pillows
-   * @param {Array} players - Cached array of player objects
-   */
-  checkPickupCollisions(players) {
-    // Debug log first few collision checks to diagnose pickup issues
-    if (!this._pickupCollisionLogCount) this._pickupCollisionLogCount = 0;
-
-    for (const player of players) {
-      // Skip players who: are disconnected, are dead, or already have ammo
-      if (!player.connected || player.hearts <= 0 || player.hasAmmo) continue;
-
-      const playerRect = Physics.getPlayerRect(player);
-
-      for (const pickup of this.pickups) {
-        if (!pickup.active) continue;
-
-        const pickupRect = {
-          x: pickup.x - CONSTANTS.PICKUP_SIZE / 2,
-          y: pickup.y - CONSTANTS.PICKUP_SIZE / 2,
-          width: CONSTANTS.PICKUP_SIZE,
-          height: CONSTANTS.PICKUP_SIZE,
-        };
-
-        // Debug: log proximity checks for players without ammo (first 10 checks)
-        if (CONSTANTS.DEBUG && this._pickupCollisionLogCount < 10) {
-          const dist = Math.hypot(player.x - pickup.x, player.y - pickup.y);
-          if (dist < 100) { // Only log when player is somewhat close
-            console.log(`[GameRoom ${this.code}] Collision check: player ${player.name} at (${Math.round(player.x)}, ${Math.round(player.y)}), pickup ${pickup.id} at (${Math.round(pickup.x)}, ${Math.round(pickup.y)}), dist=${Math.round(dist)}, hasAmmo=${player.hasAmmo}`);
-            this._pickupCollisionLogCount++;
-          }
-        }
-
-        if (Physics.rectsCollide(playerRect, pickupRect)) {
-          if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Player ${player.name} picked up pillow ${pickup.id} at (${pickup.x}, ${pickup.y})`);
-
-          // Push event BEFORE updating pickup.active to avoid race condition
-          // Include pickup position in event for client sync
-          this.events.push(['pickup', player.id, pickup.id, Math.round(pickup.x), Math.round(pickup.y)]);
-
-          // Player picks up the pillow
-          player.hasAmmo = true;
-          pickup.active = false;
-          pickup.respawnAt = Date.now() + CONSTANTS.PILLOW_RESPAWN_TIME;
-        }
-      }
-    }
-  }
 
   /**
    * Check and emit footstep sounds for sprinting players
@@ -595,368 +464,68 @@ class GameRoom {
   }
 
   /**
-   * Update game timers
+   * Update game timers (delegated to GameTimer)
    * @param {number} dt - Delta time in seconds
    * @param {Array} players - Cached array of player objects
    */
   updateTimers(dt, players) {
-    // Update time remaining
-    this.timeRemaining -= dt;
-
-    if (this.timeRemaining <= 0 && !this.suddenDeath) {
-      this.startSuddenDeath();
-    }
-
-    // Handle arena shrinking in sudden death
-    if (this.suddenDeath) {
-      const now = Date.now();
-      if (now - this.lastShrinkTime >= CONSTANTS.ARENA_SHRINK_INTERVAL) {
-        this.arenaInset += CONSTANTS.ARENA_SHRINK_AMOUNT;
-        this.lastShrinkTime = now;
-
-        // Check if players are caught in the shrink zone
-        for (const player of players) {
-          if (!player.connected || player.hearts <= 0) continue;
-
-          const halfSize = CONSTANTS.PLAYER_SIZE / 2;
-          const minX = this.arenaInset + halfSize;
-          const maxX = CONSTANTS.ARENA_WIDTH - this.arenaInset - halfSize;
-          const minY = this.arenaInset + halfSize;
-          const maxY = CONSTANTS.ARENA_HEIGHT - this.arenaInset - halfSize;
-
-          // Push players into valid area
-          if (player.x < minX) player.x = minX;
-          if (player.x > maxX) player.x = maxX;
-          if (player.y < minY) player.y = minY;
-          if (player.y > maxY) player.y = maxY;
-        }
-      }
-    }
+    this.gameTimer.update(dt, players, this.events);
   }
 
-  /**
-   * Respawn inactive pickups
-   * @param {number} now - Current timestamp
-   */
-  respawnPickups(now) {
-    for (const pickup of this.pickups) {
-      if (!pickup.active && pickup.respawnAt > 0 && now >= pickup.respawnAt) {
-        // Get new random position for respawn
-        const newPos = this.getRandomSpawnPosition();
-        pickup.x = newPos.x;
-        pickup.y = newPos.y;
-        pickup.active = true;
-        pickup.respawnAt = 0;
-
-        // Note: pickup-respawn events are broadcast via the pickups array in state packets.
-        // This event is intentionally not processed by client event handlers but could be
-        // used for future features like respawn animations or sounds.
-      }
-    }
-  }
 
   /**
-   * Check if game should end
+   * Check if game should end (delegated to GameTimer)
    */
   checkWinCondition() {
-    const alivePlayers = Array.from(this.gamePlayers.values())
-      .filter(p => p.connected && p.hearts > 0);
-    const totalPlayers = this.gamePlayers.size;
-
-    // Solo mode: only end when player dies or time runs out
-    if (totalPlayers === 1) {
-      if (alivePlayers.length === 0) {
-        this.endGame(null);  // Player died
-      } else if (this.timeRemaining <= 0 && this.suddenDeath && this.arenaInset >= Math.min(CONSTANTS.ARENA_WIDTH, CONSTANTS.ARENA_HEIGHT) * 0.3) {
-        // Solo player survived sudden death long enough (30% arena shrink) - they win!
-        this.endGame(alivePlayers[0]);
-      }
-      return;
-    }
-
-    // Multiplayer: Game ends when 1 or fewer players remain
-    if (alivePlayers.length <= 1) {
-      const winner = alivePlayers.length === 1 ? alivePlayers[0] : null;
-      this.endGame(winner);
+    const result = this.gameTimer.checkWinCondition(this.gamePlayers);
+    if (result && result.shouldEnd) {
+      this.endGame(result.winner);
     }
   }
 
   /**
-   * Start sudden death mode
-   */
-  startSuddenDeath() {
-    this.suddenDeath = true;
-    this.lastShrinkTime = Date.now();
-    this.timeRemaining = 0;
-
-    // Emit sudden death event
-    this.io.to(this.code).emit('sudden-death');
-    this.events.push(['sudden-death']);
-  }
-
-  /**
-   * Build and emit state packet to all players
+   * Build and emit state packet to all players (delegated to StateBroadcaster)
    */
   broadcastState() {
-    const packet = this.buildStatePacket();
+    this.broadcaster.broadcast({
+      gamePlayers: this.gamePlayers,
+      projectiles: this.projectiles,
+      pickupManager: this.pickupManager,
+      events: this.events,
+      state: this.state,
+      muzzleFlashActive: this.muzzleFlashActive,
+      timeRemaining: this.timeRemaining,
+      arenaInset: this.arenaInset,
+    });
 
-    // Debug: log first broadcast and every 20th after (only when DEBUG enabled)
-    if (CONSTANTS.DEBUG) {
-      if (!this._broadcastCount) this._broadcastCount = 0;
-      this._broadcastCount++;
-      if (this._broadcastCount === 1 || this._broadcastCount % 20 === 0) {
-        console.log(`[GameRoom ${this.code}] Broadcast #${this._broadcastCount}:`, {
-          state: packet.s,
-          playerCount: packet.p?.length,
-          playerPositions: packet.p?.map(p => ({ id: p[0].substring(0, 8), x: p[1], y: p[2] }))
-        });
-      }
-    }
-
-    this.io.to(this.code).emit('state', packet);
-
-    // Clear events after broadcast (create new array to avoid reference issues
-    // if previous array is still being processed)
+    // Clear events after broadcast
     this.events = [];
   }
 
   /**
-   * Build state packet for broadcast
-   * @returns {Object} State packet
-   */
-  buildStatePacket() {
-    const now = Date.now();
-
-    // Create copy of events to avoid reference issues when array is cleared after broadcast
-    const eventsCopy = this.events.slice();
-
-    // Increment state sequence with overflow protection
-    const seq = this.stateSequence++;
-    if (this.stateSequence >= Number.MAX_SAFE_INTEGER - 1) {
-      this.stateSequence = 0;
-    }
-
-    return {
-      seq: seq,
-      t: now,
-      s: this.state,
-      mf: this.muzzleFlashActive,
-      time: Math.max(0, Math.floor(this.timeRemaining)),
-      inset: this.arenaInset,
-      p: this.buildPlayersArray(now),
-      j: this.buildProjectilesArray(),
-      k: this.buildPickupsArray(),
-      e: eventsCopy,
-    };
-  }
-
-  /**
-   * Build players array for state packet
+   * Build players array for game-start packet
    * @param {number} now - Current timestamp
    * @returns {Array} Array of player arrays
    */
   buildPlayersArray(now) {
-    const result = [];
-
-    for (const player of this.gamePlayers.values()) {
-      result.push([
-        player.id,
-        Math.round(player.x),
-        Math.round(player.y),
-        player.facing,
-        player.flashlightOn,
-        player.hearts,
-        player.hasAmmo,
-        player.stunnedUntil > now,
-        player.invincibleUntil > now,
-        player.flashlightOnSince || 0, // Timestamp for flicker effect
-      ]);
-    }
-
-    return result;
+    return this.broadcaster.serializePlayers(this.gamePlayers, now);
   }
 
   /**
-   * Build projectiles array for state packet
-   * @returns {Array} Array of projectile arrays
-   */
-  buildProjectilesArray() {
-    return this.projectiles.map(p => [
-      p.id,
-      Math.round(p.x),
-      Math.round(p.y),
-      Math.round(p.vx),
-      Math.round(p.vy),
-    ]);
-  }
-
-  /**
-   * Build pickups array for state packet
+   * Build pickups array for game-start packet
    * @returns {Array} Array of pickup arrays
    */
   buildPickupsArray() {
-    return this.pickups.map(p => [
-      p.id,
-      Math.round(p.x),
-      Math.round(p.y),
-      p.active,
-    ]);
+    return this.broadcaster.serializePickups(this.pickupManager);
   }
 
   /**
-   * Process player input
+   * Process player input (delegated to InputHandler)
    * @param {string} playerId - Player socket ID
    * @param {Object} inputData - Input data from client
    */
   handleInput(playerId, inputData) {
-    // Validate playerId
-    if (typeof playerId !== 'string' || playerId.length === 0) {
-      return;
-    }
-
-    // Validate inputData is an object
-    if (inputData === null || typeof inputData !== 'object') {
-      return;
-    }
-
-    // Rate limiting check - prevent input flooding (DOS protection)
-    if (!this.checkInputRateLimit(playerId)) {
-      return;
-    }
-
-    if (this.state !== 'playing') {
-      // Log once per player
-      if (!this._inputWarned) {
-        this._inputWarned = new Set();
-      }
-      if (!this._inputWarned.has(playerId)) {
-        console.log(`[GameRoom ${this.code}] handleInput ignored - state is ${this.state}, not playing`);
-        this._inputWarned.add(playerId);
-      }
-      return;
-    }
-
-    const player = this.gamePlayers.get(playerId);
-    if (!player || !player.connected || player.hearts <= 0) {
-      console.log(`[GameRoom ${this.code}] handleInput ignored - player issue:`, {
-        exists: !!player,
-        connected: player?.connected,
-        hearts: player?.hearts
-      });
-      return;
-    }
-
-    // Debug: log first input from each player (only when DEBUG enabled)
-    if (CONSTANTS.DEBUG) {
-      if (!this._inputReceived) this._inputReceived = new Set();
-      if (!this._inputReceived.has(playerId)) {
-        console.log(`[GameRoom ${this.code}] First input from player ${playerId.substring(0, 8)}:`, inputData);
-        this._inputReceived.add(playerId);
-      }
-    }
-
-    // Update movement input (with null check for input object)
-    if (inputData.input !== undefined && inputData.input !== null && typeof inputData.input === 'object') {
-      const input = inputData.input;
-      player.input.up = input.up === true;
-      player.input.down = input.down === true;
-      player.input.left = input.left === true;
-      player.input.right = input.right === true;
-      player.input.sprint = input.sprint === true;
-    }
-
-    // Update facing direction (validate and normalize to -PI to PI range)
-    if (inputData.facing !== undefined) {
-      const facing = parseFloat(inputData.facing);
-      if (Number.isFinite(facing)) {
-        // Normalize angle to valid range (-PI to PI)
-        let normalizedFacing = facing % (2 * Math.PI);
-        if (normalizedFacing > Math.PI) {
-          normalizedFacing -= 2 * Math.PI;
-        } else if (normalizedFacing < -Math.PI) {
-          normalizedFacing += 2 * Math.PI;
-        }
-        player.facing = normalizedFacing;
-      }
-    }
-
-    // Handle flashlight toggle (inside inputData.input) with debounce
-    if (inputData.input?.flashlight) {
-      const now = Date.now();
-      const FLASHLIGHT_TOGGLE_COOLDOWN = 100; // ms debounce
-
-      if (now - player.lastFlashlightToggle >= FLASHLIGHT_TOGGLE_COOLDOWN) {
-        player.flashlightOn = !player.flashlightOn;
-        player.lastFlashlightToggle = now;
-        // Track flashlight on time for flicker effect
-        player.flashlightOnSince = player.flashlightOn ? now : 0;
-        if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Player ${playerId.substring(0, 8)} flashlight toggled to: ${player.flashlightOn}`);
-      }
-    }
-
-    // Handle throw action (inside inputData.input)
-    if (inputData.input?.throw) {
-      this.handleThrow(player);
-    }
-  }
-
-  /**
-   * Handle player throw action
-   * @param {Object} player - Player object
-   */
-  handleThrow(player) {
-    // Validate player object
-    if (!player || typeof player !== 'object') {
-      return;
-    }
-
-    // Limit projectiles per room to prevent DOS
-    const MAX_PROJECTILES = 50;
-    if (this.projectiles.length >= MAX_PROJECTILES) {
-      if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Projectile limit reached, ignoring throw`);
-      return;
-    }
-
-    const now = Date.now();
-
-    // Check if player can throw
-    if (!Combat.canThrow(player, now)) {
-      if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Player ${player.name} cannot throw:`, {
-        hasAmmo: player.hasAmmo,
-        cooldown: now - (player.lastThrowTime || 0),
-        stunned: player.stunnedUntil > now
-      });
-      return;
-    }
-
-    // Create projectile (with overflow protection)
-    const projectileId = `proj_${this.nextProjectileId}`;
-    this.nextProjectileId = (this.nextProjectileId % this.MAX_PROJECTILE_ID) + 1;
-    const projectile = Combat.createProjectile(player, projectileId);
-
-    // Check if projectile spawns inside an obstacle
-    if (Combat.collidesWithObstacle(projectile, CONSTANTS.OBSTACLES)) {
-      if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Player ${player.name} projectile spawn blocked by obstacle`);
-      // Still consume ammo but don't create projectile (player is too close to obstacle)
-      player.hasAmmo = false;
-      player.lastThrowTime = now;
-      return;
-    }
-
-    if (CONSTANTS.DEBUG) console.log(`[GameRoom ${this.code}] Player ${player.name} threw projectile:`, projectile);
-
-    this.projectiles.push(projectile);
-
-    // Update player state
-    player.hasAmmo = false;
-    player.lastThrowTime = now;
-
-    // Trigger muzzle flash (set timestamp before flag for atomic-like behavior)
-    this.muzzleFlashUntil = now + CONSTANTS.MUZZLE_FLASH_DURATION;
-    this.muzzleFlashActive = true;
-
-    // Add throw event
-    this.events.push(['throw', player.id, Math.round(projectile.x), Math.round(projectile.y)]);
+    this.inputHandler.processInput(playerId, inputData, this.gamePlayers, this);
   }
 
   /**
@@ -1055,12 +624,17 @@ class GameRoom {
       })),
     };
 
-    this.io.to(this.code).emit('game-over', results);
+    this.io.to(this.code).emit('game-over', { ...results, autoReturnSeconds: 15});
 
     // Reset debug sets to prevent memory leaks across multiple games
-    this._inputWarned = new Set();
-    this._inputReceived = new Set();
-    this._broadcastCount = 0;
+    this.inputHandler.reset();
+    //Auto-return after timeout
+    this.autoReturnTimeout = setTimeout(() => {
+      if (this.state === 'gameover') {
+        this.io.to(this.code).emit('auto-return-lobby');
+        this.resetToLobby();
+      }
+    }, 15 * 1000);
   }
 
   /**
@@ -1077,7 +651,7 @@ class GameRoom {
     // This prevents race conditions if endGame() was called and cleared gamePlayers
     if (!this.gameLoopActive && this.state !== 'playing') {
       // Game has already ended, just clean up tracking
-      this.inputRateTracking.delete(playerId);
+      this.inputRateLimiter.remove(playerId);
       return;
     }
 
@@ -1086,7 +660,7 @@ class GameRoom {
       player.connected = false;
     }
     // Clean up input rate tracking to prevent memory leak
-    this.inputRateTracking.delete(playerId);
+    this.inputRateLimiter.remove(playerId);
 
     // Check if game should end due to disconnect
     // Only check if game loop is still active to prevent race with endGame()
@@ -1128,30 +702,30 @@ class GameRoom {
     if (this.state !== 'gameover' && this.state !== 'lobby') {
       console.log(`[GameRoom ${this.code}] Warning: resetToLobby called from state: ${this.state}`);
     }
+    if (this.autoReturnTimeout) {
+      clearTimeout(this.autoReturnTimeout);
+      this.autoReturnTimeout = null;
+    }
     this.state = 'lobby';
     this.gamePlayers.clear();
     this.syncGamePlayersObject();
     this.projectiles = [];
-    this.pickups = [];
+    this.pickupManager.reset();
     this.events = [];
-    this.timeRemaining = this.settings.timeLimit;
-    this.arenaInset = 0;
-    this.suddenDeath = false;
+    this.gameTimer.reset(this.settings);
     this.muzzleFlashActive = false;
     this.pausedBy = null;
     this.returnToLobbyRequests.clear();
 
-    // Reset state sequence to 0 for network sync
-    this.stateSequence = 0;
+    // Reset broadcaster state
+    this.broadcaster.reset();
 
     // Reset game loop flag
     this.gameLoopActive = false;
 
     // Clear rate tracking and debug sets
-    this.inputRateTracking.clear();
-    this._inputWarned = new Set();
-    this._inputReceived = new Set();
-    this._broadcastCount = 0;
+    this.inputRateLimiter.clear();
+    this.inputHandler.reset();
   }
 
   /**
@@ -1171,6 +745,10 @@ class GameRoom {
     if (this.countdownInterval) {
       clearInterval(this.countdownInterval);
       this.countdownInterval = null;
+    }
+    if (this.autoReturnTimeout) { 
+    clearTimeout(this.autoReturnTimeout);
+    this.autoReturnTimeout = null;
     }
   }
 }

@@ -1,5 +1,6 @@
 const CONSTANTS = require('./constants');
 const GameRoom = require('./GameRoom');
+const RateLimiter = require('./RateLimiter');
 
 /**
  * GameManager handles room management, player tracking, and coordinates
@@ -11,7 +12,7 @@ class GameManager {
     this.rooms = new Map();      // roomCode -> GameRoom
     this.players = new Map();    // socket.id -> player object
     this.roomCreationCooldown = new Map(); // socket.id -> timestamp (rate limiting)
-    this.eventRateLimits = new Map(); // socketId:event -> lastTime (rate limiting for lobby events)
+    this.rateLimiter = new RateLimiter();
   }
 
   /**
@@ -22,14 +23,7 @@ class GameManager {
    * @returns {boolean} - true if allowed, false if rate limited
    */
   checkEventRateLimit(socketId, event, cooldownMs = 500) {
-    const key = `${socketId}:${event}`;
-    const now = Date.now();
-    const last = this.eventRateLimits.get(key) || 0;
-    if (now - last < cooldownMs) {
-      return false; // Rate limited
-    }
-    this.eventRateLimits.set(key, now);
-    return true;
+    return this.rateLimiter.checkCooldown(`${socketId}:${event}`, cooldownMs);
   }
 
   /**
@@ -37,12 +31,7 @@ class GameManager {
    * @param {string} socketId - The socket ID to clean up
    */
   cleanupRateLimits(socketId) {
-    const prefix = `${socketId}:`;
-    for (const key of this.eventRateLimits.keys()) {
-      if (key.startsWith(prefix)) {
-        this.eventRateLimits.delete(key);
-      }
-    }
+    this.rateLimiter.cleanup(`${socketId}:`);
   }
 
   /**
@@ -50,13 +39,7 @@ class GameManager {
    * Call this periodically (e.g., every 5 minutes) to clean stale entries
    */
   cleanupStaleRateLimits() {
-    const now = Date.now();
-    const STALE_THRESHOLD = 300000; // 5 minutes
-    for (const [key, timestamp] of this.eventRateLimits) {
-      if (now - timestamp >= STALE_THRESHOLD) {
-        this.eventRateLimits.delete(key);
-      }
-    }
+    this.rateLimiter.cleanupStale();
   }
 
   /**
@@ -534,7 +517,6 @@ class GameManager {
     // Remove player from game state but keep in room for potential return
     room.removePlayer(socket.id);
 
-    // HIGH-13: Re-check room existence and state before calling endGame (TOCTOU defense)
     // The room could have been deleted or state changed during removePlayer()
     const roomAfterRemove = this.rooms.get(player.roomCode);
     if (!roomAfterRemove) {
@@ -603,7 +585,6 @@ class GameManager {
     // Clean up rate limit entries for this socket
     this.cleanupRateLimits(socket.id);
 
-    // LOW-10: Clean up room creation cooldown for this socket
     this.roomCreationCooldown.delete(socket.id);
 
     const player = this.players.get(socket.id);
@@ -620,15 +601,13 @@ class GameManager {
 
     console.log(`${player.name} (${socket.id}) disconnected from room ${room.code}`);
 
-    // HIGH-14: Handle in-game disconnect BEFORE removing player from maps
     // This ensures handlePlayerDisconnect has access to player data for proper state sync
     if (room.state === 'playing' || room.state === 'paused') {
       room.handlePlayerDisconnect(socket.id);
     }
 
-    // LOW-18: Clean up input rate tracking in GameRoom (for lobby disconnects too)
-    if (room.inputRateTracking) {
-      room.inputRateTracking.delete(socket.id);
+    if (room.inputRateLimiter) {
+      room.inputRateLimiter.remove(socket.id);
     }
 
     // Remove player from room (after handling disconnect)
